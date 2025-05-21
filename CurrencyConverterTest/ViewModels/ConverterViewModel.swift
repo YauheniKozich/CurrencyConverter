@@ -32,36 +32,38 @@ final class ConverterViewModel: ObservableObject {
     
     init(context: ModelContext? = nil) {
         self.context = context
-        if let context = context {
-            self.repository = CurrencyAPIRepository(context: context)
-        }
+        ensureRepository()
     }
     
     func convert() async {
         guard let context else { return }
         ensureRepository()
+        guard let repository = repository else { return }
         guard let amountValue = Double(amount) else {
             errorMessage = "Неверный формат суммы"
             return
         }
         do {
-            let conversion = try await repository!.convert(from: fromCurrency, to: toCurrency, amount: amountValue)
+            let conversion = try await repository.convert(from: fromCurrency, to: toCurrency, amount: amountValue)
             
             let resultFormatter = makeFormatter(maxFractionDigits: 2)
             result = resultFormatter.string(from: NSNumber(value: conversion.result)) ?? "\(conversion.result)"
-
+            
             let rateFormatter = makeFormatter(maxFractionDigits: 4)
             rate = rateFormatter.string(from: NSNumber(value: conversion.rate)) ?? "\(conversion.rate)"
             
             let historyItem = Conversion(from: fromCurrency, to: toCurrency, amount: amountValue, result: conversion.result, rate: conversion.rate)
             context.insert(historyItem)
+            errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
+            result = ""
+            rate = ""
         }
     }
     
     func loadCurrencies() async {
-        guard context != nil else { return }
+        guard let context = context else { return }
         guard currencies.isEmpty else { return }
         ensureRepository()
         guard let repository = repository else { return }
@@ -78,8 +80,7 @@ final class ConverterViewModel: ObservableObject {
             self.isLoadingCurrencies = false
         }
     }
-}
-
+    
     private func makeFormatter(maxFractionDigits: Int) -> NumberFormatter {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
@@ -87,3 +88,4 @@ final class ConverterViewModel: ObservableObject {
         formatter.locale = Locale.current
         return formatter
     }
+}
