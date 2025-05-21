@@ -63,7 +63,7 @@ final class ConverterViewModel: ObservableObject {
     }
     
     func loadCurrencies() async {
-        guard let context = context else { return }
+        guard context != nil else { return }
         guard currencies.isEmpty else { return }
         ensureRepository()
         guard let repository = repository else { return }
