@@ -39,14 +39,9 @@ final class CurrencyAPIRepository: CurrencyRepository {
     func fetchSupportedCurrencies() async throws -> [String: Currency] {
         do {
             let data = try await networkService.request(CurrencyAPIEndpoint.currencies(apiKey: apiKey))
-            do {
-                let decoded: CurrencyResponse = try networkService.decode(data)
-                log("Успешно получено: \(decoded.data.count) валют")
-                return decoded.data
-            } catch {
-                log("Ошибка декодирования: \(error)")
-                throw NetworkError.decodingError(error)
-            }
+            let decoded: CurrencyResponse = try networkService.decode(data)
+            log("Успешно получено: \(decoded.data.count) валют")
+            return decoded.data
         } catch {
             log("Ошибка при получении валют: \(error)")
             throw error
