@@ -22,20 +22,14 @@ final class ConverterViewModel: ObservableObject {
     @Published var currenciesLoadingError: String?
     
     var context: ModelContext?
-    private var repository: CurrencyRepository?
+    let repository: CurrencyRepository
     
     private var convertTask: Task<Void, Never>? = nil
     private var loadCurrenciesTask: Task<Void, Never>? = nil
     
-    private func ensureRepository() {
-        if repository == nil, let context {
-            repository = CurrencyAPIRepository(context: context)
-        }
-    }
-    
-    init(context: ModelContext? = nil) {
+    init(context: ModelContext? = nil, repository: CurrencyRepository) {
         self.context = context
-        ensureRepository()
+        self.repository = repository
     }
     
     func convert() {
@@ -45,10 +39,15 @@ final class ConverterViewModel: ObservableObject {
         }
     }
     
+    func loadCurrencies() {
+        loadCurrenciesTask?.cancel()
+        loadCurrenciesTask = Task {
+            await performLoadCurrencies()
+        }
+    }
+    
     private func performConversion() async {
         guard let context else { return }
-        ensureRepository()
-        guard let repository = repository else { return }
         guard let amountValue = Double(amount) else {
             errorMessage = "Неверный формат суммы"
             return
@@ -72,18 +71,9 @@ final class ConverterViewModel: ObservableObject {
         }
     }
     
-    func loadCurrencies() {
-        loadCurrenciesTask?.cancel()
-        loadCurrenciesTask = Task {
-            await performLoadCurrencies()
-        }
-    }
-    
     private func performLoadCurrencies() async {
         guard context != nil else { return }
         guard currencies.isEmpty else { return }
-        ensureRepository()
-        guard let repository = repository else { return }
         isLoadingCurrencies = true
         do {
             let map = try await repository.fetchSupportedCurrencies()

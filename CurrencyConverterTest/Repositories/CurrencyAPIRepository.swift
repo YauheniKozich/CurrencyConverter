@@ -17,8 +17,12 @@ final class CurrencyAPIRepository: CurrencyRepository {
     private let account = "CurrencyAPIKey"
     private(set) var apiKey: String
     private let cacheTTL: TimeInterval = 3600 // 1 час
-    private let context: ModelContext
-    private let localDataSource: CurrencyLocalDataSource
+    internal var context: ModelContext {
+        didSet {
+            localDataSource = CurrencyLocalDataSource(context: context)
+        }
+    }
+    private var localDataSource: CurrencyLocalDataSource
     private let networkService: NetworkService
     
     init(context: ModelContext) {
