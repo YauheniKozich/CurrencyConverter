@@ -21,14 +21,12 @@ final class ConverterViewModel: ObservableObject {
     @Published var isLoadingCurrencies = false
     @Published var currenciesLoadingError: String?
     
-    var context: ModelContext?
     let repository: CurrencyRepository
     
     private var convertTask: Task<Void, Never>? = nil
     private var loadCurrenciesTask: Task<Void, Never>? = nil
     
-    init(context: ModelContext? = nil, repository: CurrencyRepository) {
-        self.context = context
+    init(repository: CurrencyRepository) {
         self.repository = repository
     }
     
@@ -47,7 +45,6 @@ final class ConverterViewModel: ObservableObject {
     }
     
     private func performConversion() async {
-        guard let context else { return }
         guard let amountValue = Double(amount) else {
             errorMessage = "Неверный формат суммы"
             return
@@ -62,7 +59,7 @@ final class ConverterViewModel: ObservableObject {
             rate = rateFormatter.string(from: NSNumber(value: conversion.rate)) ?? "\(conversion.rate)"
             
             let historyItem = Conversion(from: fromCurrency, to: toCurrency, amount: amountValue, result: conversion.result, rate: conversion.rate)
-            context.insert(historyItem)
+            await repository.saveConversion(historyItem)
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
@@ -72,7 +69,6 @@ final class ConverterViewModel: ObservableObject {
     }
     
     private func performLoadCurrencies() async {
-        guard context != nil else { return }
         guard currencies.isEmpty else { return }
         isLoadingCurrencies = true
         do {

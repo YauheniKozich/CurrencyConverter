@@ -15,6 +15,7 @@ struct ConversionResult {
 protocol CurrencyRepository {
     func convert(from: String, to: String, amount: Double) async throws -> ConversionResult
     func fetchSupportedCurrencies() async throws -> [String: Currency]
+    func saveConversion(_ conversion: Conversion) async
 }
 
 extension CurrencyRepository {

@@ -98,3 +98,10 @@ private func log(_ message: String) {
     print("🔹 \(message)")
 #endif
 }
+
+// MARK: - CurrencyAPIRepository Extension
+extension CurrencyAPIRepository {
+    func saveConversion(_ conversion: Conversion) async {
+        context.insert(conversion)
+    }
+}

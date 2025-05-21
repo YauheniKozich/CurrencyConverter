@@ -13,7 +13,7 @@ struct ConverterView: View {
     @StateObject private var viewModel: ConverterViewModel
 
     init(context: ModelContext) {
-        _viewModel = StateObject(wrappedValue: ConverterViewModel(context: context, repository: CurrencyAPIRepository(context: context)))
+        _viewModel = StateObject(wrappedValue: ConverterViewModel(repository: CurrencyAPIRepository(context: context)))
     }
 
     var body: some View {
