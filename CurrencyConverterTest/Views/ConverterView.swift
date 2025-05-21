@@ -55,7 +55,7 @@ struct ConverterView: View {
                 }
                 
                 Button("Конвертировать") {
-                    Task { await viewModel.convert() }
+                    viewModel.convert()
                 }
                 .disabled(viewModel.amount.isEmpty || viewModel.currencies.isEmpty)
                 
@@ -78,9 +78,7 @@ struct ConverterView: View {
             .navigationTitle("Конвертер валют")
             .onAppear {
                 viewModel.context = context
-                Task {
-                    await viewModel.loadCurrencies()
-                }
+                viewModel.loadCurrencies()
             }
             .alert("Ошибка", isPresented: .constant(viewModel.errorMessage != nil)) {
                 Button("OK", role: .cancel) {

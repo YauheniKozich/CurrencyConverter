@@ -24,6 +24,9 @@ final class ConverterViewModel: ObservableObject {
     var context: ModelContext?
     private var repository: CurrencyRepository?
     
+    private var convertTask: Task<Void, Never>? = nil
+    private var loadCurrenciesTask: Task<Void, Never>? = nil
+    
     private func ensureRepository() {
         if repository == nil, let context {
             repository = CurrencyAPIRepository(context: context)
@@ -35,7 +38,14 @@ final class ConverterViewModel: ObservableObject {
         ensureRepository()
     }
     
-    func convert() async {
+    func convert() {
+        convertTask?.cancel()
+        convertTask = Task {
+            await performConversion()
+        }
+    }
+    
+    private func performConversion() async {
         guard let context else { return }
         ensureRepository()
         guard let repository = repository else { return }
@@ -62,7 +72,14 @@ final class ConverterViewModel: ObservableObject {
         }
     }
     
-    func loadCurrencies() async {
+    func loadCurrencies() {
+        loadCurrenciesTask?.cancel()
+        loadCurrenciesTask = Task {
+            await performLoadCurrencies()
+        }
+    }
+    
+    private func performLoadCurrencies() async {
         guard context != nil else { return }
         guard currencies.isEmpty else { return }
         ensureRepository()
