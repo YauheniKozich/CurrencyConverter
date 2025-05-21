@@ -7,11 +7,11 @@
 
 import Foundation
 
-struct CurrencyResponse: Codable {
+struct CurrencyResponse: Decodable {
     let data: [String: Currency]
 }
 
-struct Currency: Codable {
+struct Currency: Decodable {
     let name: String
     let code: String
 }

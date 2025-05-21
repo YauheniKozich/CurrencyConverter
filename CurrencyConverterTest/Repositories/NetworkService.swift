@@ -65,6 +65,15 @@ final class NetworkService {
         self.session = URLSession(configuration: configuration)
     }
     
+    func decode<T: Decodable>(_ data: Data) throws -> T {
+        do {
+            return try JSONDecoder().decode(T.self, from: data)
+        } catch {
+            log("Ошибка декодирования: \(error)")
+            throw NetworkError.decodingError(error)
+        }
+    }
+    
     func request(_ endpoint: APIEndpointProtocol) async throws -> Data {
         return try await performWithRetry {
             self.log("Запрос к: \(endpoint.urlRequest.url?.absoluteString ?? "unknown URL")")

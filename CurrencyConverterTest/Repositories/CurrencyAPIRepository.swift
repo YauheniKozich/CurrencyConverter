@@ -40,7 +40,7 @@ final class CurrencyAPIRepository: CurrencyRepository {
         do {
             let data = try await networkService.request(CurrencyAPIEndpoint.currencies(apiKey: apiKey))
             do {
-                let decoded = try JSONDecoder().decode(CurrencyResponse.self, from: data)
+                let decoded: CurrencyResponse = try networkService.decode(data)
                 log("Успешно получено: \(decoded.data.count) валют")
                 return decoded.data
             } catch {
@@ -54,33 +54,34 @@ final class CurrencyAPIRepository: CurrencyRepository {
     }
     
     func convert(from: String, to: String, amount: Double) async throws -> ConversionResult {
-        if let cached = try? localDataSource.loadCachedRate(from: from, to: to), Date().timeIntervalSince(cached.timestamp) < cacheTTL {
+        if let cached = try? localDataSource.loadCachedRate(from: from, to: to),
+           Date().timeIntervalSince(cached.timestamp) < cacheTTL {
             log("Использование кешированного курса для \(from)/\(to)")
             return ConversionResult(result: amount * cached.rate, rate: cached.rate)
         }
+
         do {
             let data = try await networkService.request(CurrencyAPIEndpoint.convert(from: from, to: to, apiKey: apiKey))
-            do {
-                let decoded = try JSONDecoder().decode(CurrencyAPIResponse.self, from: data)
-                guard let rateObj = decoded.data[to] else {
-                    let errorMsg = "Нет курса для выбранной валюты: \(to)"
-                    log(errorMsg)
-                    throw NSError(domain: "CurrencyAPI", code: 0, userInfo: [NSLocalizedDescriptionKey: errorMsg])
-                }
-                let rate = rateObj.value
-                log("Курс \(from)/\(to): \(rate)")
-                try? localDataSource.saveRate(from: from, to: to, rate: rate)
-                return ConversionResult(result: amount * rate, rate: rate)
-            } catch {
-                log("Ошибка декодирования конвертации: \(error)")
-                throw NetworkError.decodingError(error)
+            let decoded: CurrencyAPIResponse = try networkService.decode(data)
+
+            guard let rateObj = decoded.data[to] else {
+                let errorMsg = "Нет курса для выбранной валюты: \(to)"
+                log(errorMsg)
+                throw NSError(domain: "CurrencyAPI", code: 0, userInfo: [NSLocalizedDescriptionKey: errorMsg])
             }
+
+            let rate = rateObj.value
+            log("Курс \(from)/\(to): \(rate)")
+            try? localDataSource.saveRate(from: from, to: to, rate: rate)
+            return ConversionResult(result: amount * rate, rate: rate)
         } catch {
             log("Ошибка при конвертации: \(error)")
+
             if let fallback = try? localDataSource.loadCachedRate(from: from, to: to) {
                 log("Использование кешированного курса в fallback для \(from)/\(to)")
                 return ConversionResult(result: amount * fallback.rate, rate: fallback.rate)
             }
+
             throw error
         }
     }
