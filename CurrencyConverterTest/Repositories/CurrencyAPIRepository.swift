@@ -93,8 +93,6 @@ final class CurrencyAPIRepository: CurrencyRepository {
         }
     }
     
-    // MARK: - CurrencyLocalDataSource
-    
     // MARK: - KeychainHelper
     
     private func saveApiKeyToKeychain(_ key: String) {
