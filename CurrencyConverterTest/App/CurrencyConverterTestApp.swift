@@ -1,10 +1,3 @@
-//
-//  CurrencyConverterTestApp.swift
-//  CurrencyConverterTest
-//
-//  Created by Yauheni Kozich on 19.05.25.
-//
-
 import SwiftUI
 import SwiftData
 
@@ -23,7 +16,7 @@ struct CurrencyConverterApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ConverterView(context: context)
+            ConverterView(viewModel: ViewModelFactory.makeConverterViewModel(context: context))
                 .environment(\.modelContext, context)
         }
         .modelContainer(for: [Conversion.self, ExchangeRate.self])

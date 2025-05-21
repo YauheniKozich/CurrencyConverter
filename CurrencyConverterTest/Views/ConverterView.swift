@@ -9,12 +9,7 @@ import SwiftUI
 import SwiftData
 
 struct ConverterView: View {
-    @Environment(\.modelContext) private var context
-    @StateObject private var viewModel: ConverterViewModel
-
-    init(context: ModelContext) {
-        _viewModel = StateObject(wrappedValue: ConverterViewModel(repository: CurrencyAPIRepository(context: context)))
-    }
+    @ObservedObject var viewModel: ConverterViewModel
 
     var body: some View {
         NavigationStack {
