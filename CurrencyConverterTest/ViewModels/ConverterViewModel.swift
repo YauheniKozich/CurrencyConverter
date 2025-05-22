@@ -21,7 +21,7 @@ final class ConverterViewModel: ObservableObject {
     @Published var isLoadingCurrencies = false
     @Published var currenciesLoadingError: String?
     
-    let repository: CurrencyRepository
+    private let repository: CurrencyRepository
     
     private var convertTask: Task<Void, Never>? = nil
     private var loadCurrenciesTask: Task<Void, Never>? = nil
@@ -74,13 +74,13 @@ final class ConverterViewModel: ObservableObject {
         do {
             let map = try await repository.fetchSupportedCurrencies()
             let sorted = map.values.map { $0.code }.sorted()
-            self.currencies = sorted
-            self.isLoadingCurrencies = false
-            self.currenciesLoadingError = nil
+            currencies = sorted
+            isLoadingCurrencies = false
+            currenciesLoadingError = nil
         } catch {
             print("Ошибка загрузки валют: \(error)")
-            self.currenciesLoadingError = error.localizedDescription
-            self.isLoadingCurrencies = false
+            currenciesLoadingError = error.localizedDescription
+            isLoadingCurrencies = false
         }
     }
     
