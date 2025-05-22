@@ -15,7 +15,7 @@ final class CurrencyAPIRepository: CurrencyRepository {
     
     private let service = "com.yourapp.currencyconverter"
     private let account = "CurrencyAPIKey"
-    private(set) var apiKey: String
+    private(set) var apiKey: String?
     private let cacheTTL: TimeInterval = 3600 // 1 час
     private var context: ModelContext {
         didSet {
@@ -25,13 +25,14 @@ final class CurrencyAPIRepository: CurrencyRepository {
     private var localDataSource: CurrencyLocalDataSource
     private let networkService: NetworkService
     
-    init(context: ModelContext) {
+    init?(context: ModelContext) {
         self.context = context
         self.localDataSource = CurrencyLocalDataSource(context: context)
         self.networkService = NetworkService()
         
         guard let loadedKey = APIKeyLoader.loadAPIKey() else {
-            fatalError("API ключ не найден и не может быть загружен из Config.plist")
+            print("API ключ не найден и не может быть загружен из Config.plist")
+            return nil
         }
         
         self.apiKey = loadedKey
@@ -42,7 +43,7 @@ final class CurrencyAPIRepository: CurrencyRepository {
     
     func fetchSupportedCurrencies() async throws -> [String: Currency] {
         do {
-            let data = try await networkService.request(CurrencyAPIEndpoint.currencies(apiKey: apiKey))
+            let data = try await networkService.request(CurrencyAPIEndpoint.currencies(apiKey: apiKey ?? "" ))
             let decoded: CurrencyResponse = try networkService.decode(data)
             log("Успешно получено: \(decoded.data.count) валют")
             return decoded.data
@@ -60,7 +61,7 @@ final class CurrencyAPIRepository: CurrencyRepository {
         }
 
         do {
-            let data = try await networkService.request(CurrencyAPIEndpoint.convert(from: from, to: to, apiKey: apiKey))
+            let data = try await networkService.request(CurrencyAPIEndpoint.convert(from: from, to: to, apiKey: apiKey ?? ""))
             let decoded: CurrencyAPIResponse = try networkService.decode(data)
 
             guard let rateObj = decoded.data[to] else {
