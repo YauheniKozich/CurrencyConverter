@@ -31,7 +31,7 @@ final class CurrencyAPIRepository: CurrencyRepository {
         self.networkService = NetworkService()
         
         guard let loadedKey = APIKeyLoader.loadAPIKey() else {
-            print("API ключ не найден и не может быть загружен из Config.plist")
+            log("API ключ не найден и не может быть загружен из Config.plist")
             return nil
         }
         

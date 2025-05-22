@@ -91,23 +91,36 @@ final class NetworkService {
     }
     
     // MARK: - Retry Logic решение для Api так как оно не очень хорошее
-    private func performWithRetry<T>(maxRetries: Int = 5, delayFactor: Double = 0.5, operation: @escaping () async throws -> T) async throws -> T {
+    private func performWithRetry<T>(
+        maxRetries: Int = 5,
+        delayFactor: Double = 0.5,
+        shouldRetry: @escaping (Error) -> Bool = { _ in true },
+        onRetry: ((Int, Error) -> Void)? = nil,
+        operation: @escaping () async throws -> T
+    ) async throws -> T {
         var retryCount = 0
+
         while retryCount < maxRetries {
+            try Task.checkCancellation()
+            
             do {
                 return try await operation()
             } catch {
                 retryCount += 1
-                if retryCount >= maxRetries {
-                    log("Достигнуто максимальное количество повторов: \(retryCount). Ошибка: \(error)")
+                if retryCount >= maxRetries || !shouldRetry(error) {
+                    log("Повторы остановлены. Ошибка: \(error)")
                     throw error
                 }
+
                 let delay = pow(2.0, Double(retryCount)) * delayFactor
                 log("Повтор \(retryCount)/\(maxRetries) через \(delay)s из-за ошибки: \(error)")
+                onRetry?(retryCount, error)
+
                 try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             }
         }
-        log("Неизвестная ошибка после повторов")
+
+        log("Неизвестная ошибка после всех повторов")
         throw NetworkError.unknown
     }
     

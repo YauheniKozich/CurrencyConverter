@@ -8,9 +8,12 @@
 import Foundation
 import SwiftData
 
+/// Фабрика для создания экземпляров ViewModel
 enum ViewModelFactory {
     @MainActor static func makeConverterViewModel(context: ModelContext) -> ConverterViewModel {
-        let repository = CurrencyAPIRepository(context: context)
+        guard let repository = CurrencyAPIRepository(context: context) else {
+            fatalError("Не удалось создать CurrencyAPIRepository")
+        }
         return ConverterViewModel(repository: repository)
     }
 }
