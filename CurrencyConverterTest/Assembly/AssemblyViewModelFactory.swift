@@ -11,9 +11,19 @@ import SwiftData
 /// Фабрика для создания экземпляров ViewModel
 enum ViewModelFactory {
     @MainActor static func makeConverterViewModel(context: ModelContext) -> ConverterViewModel {
-        guard let repository = CurrencyAPIRepository(context: context) else {
-            fatalError("Не удалось создать CurrencyAPIRepository")
+        let localDataSource = CurrencyLocalDataSource(context: context)
+        let networkService = NetworkService()
+        let apiKeyProvider = KeychainAPIKeyProvider()
+        do {
+            let repository = try CurrencyAPIRepository(
+                context: context,
+                localDataSource: localDataSource,
+                networkService: networkService,
+                apiKeyProvider: apiKeyProvider
+            )
+            return ConverterViewModel(repository: repository)
+        } catch {
+            fatalError("Не удалось создать CurrencyAPIRepository: \(error)")
         }
-        return ConverterViewModel(repository: repository)
     }
 }

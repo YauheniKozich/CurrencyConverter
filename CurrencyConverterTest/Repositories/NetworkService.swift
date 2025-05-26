@@ -29,22 +29,21 @@ enum CurrencyAPIEndpoint: APIEndpointProtocol {
     case convert(from: String, to: String, apiKey: String)
     
     var urlRequest: URLRequest {
+        var components: URLComponents
         switch self {
         case .currencies(let apiKey):
-            var components = URLComponents(string: "https://api.currencyapi.com/v3/currencies")!
+            components = URLComponents(string: "https://api.currencyapi.com/v3/currencies")!
             components.queryItems = [URLQueryItem(name: "apikey", value: apiKey)]
-            let url = components.url!
-            return URLRequest(url: url)
         case .convert(let from, let to, let apiKey):
-            var components = URLComponents(string: "https://api.currencyapi.com/v3/latest")!
+            components = URLComponents(string: "https://api.currencyapi.com/v3/latest")!
             components.queryItems = [
                 URLQueryItem(name: "base_currency", value: from),
                 URLQueryItem(name: "currencies", value: to),
                 URLQueryItem(name: "apikey", value: apiKey)
             ]
-            let url = components.url!
-            return URLRequest(url: url)
         }
+        let url = components.url!
+        return URLRequest(url: url)
     }
 }
 
@@ -52,8 +51,15 @@ enum CurrencyAPIEndpoint: APIEndpointProtocol {
 
 final class NetworkService {
     private let session: URLSession
+    private let jsonDecoder: JSONDecoder
     
-    init() {
+    init(session: URLSession = NetworkService.makeDefaultSession(),
+         decoder: JSONDecoder = JSONDecoder()) {
+        self.session = session
+        self.jsonDecoder = decoder
+    }
+    
+    private static func makeDefaultSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 20
         configuration.timeoutIntervalForResource = 40
@@ -62,72 +68,67 @@ final class NetworkService {
             "Alt-Used": "api.currencyapi.com"
         ]
         configuration.multipathServiceType = .interactive
-        self.session = URLSession(configuration: configuration)
+        return URLSession(configuration: configuration)
     }
     
     func decode<T: Decodable>(_ data: Data) throws -> T {
         do {
-            return try JSONDecoder().decode(T.self, from: data)
+            return try jsonDecoder.decode(T.self, from: data)
         } catch {
-            log("Ошибка декодирования: \(error)")
+            Logger.log("Ошибка декодирования: \(error)")
             throw NetworkError.decodingError(error)
         }
     }
     
     func request(_ endpoint: APIEndpointProtocol) async throws -> Data {
-        return try await performWithRetry {
-            self.log("Запрос к: \(endpoint.urlRequest.url?.absoluteString ?? "unknown URL")")
+        try await performWithRetry {
+            Logger.log("Выполняется запрос: \(endpoint.urlRequest.url?.absoluteString ?? "unknown URL")")
+            
             let (data, response) = try await self.session.data(for: endpoint.urlRequest)
+            
             guard let httpResponse = response as? HTTPURLResponse else {
-                self.log("Ошибка: неверный ответ сервера")
+                Logger.log("Ошибка: неверный ответ сервера")
                 throw NetworkError.invalidResponse
             }
+            
             guard (200...299).contains(httpResponse.statusCode) else {
-                self.log("Ошибка: статус код \(httpResponse.statusCode)")
+                Logger.log("Ошибка: статус код \(httpResponse.statusCode)")
                 throw NetworkError.statusCodeError(httpResponse.statusCode)
             }
+            
             return data
         }
     }
     
-    // MARK: - Retry Logic решение для Api так как оно не очень хорошее
+    // MARK: - Retry Logic
+    
     private func performWithRetry<T>(
         maxRetries: Int = 5,
-        delayFactor: Double = 0.5,
+        initialDelay: Double = 0.5,
+        maxDelay: Double = 10,
         shouldRetry: @escaping (Error) -> Bool = { _ in true },
         onRetry: ((Int, Error) -> Void)? = nil,
         operation: @escaping () async throws -> T
     ) async throws -> T {
         var retryCount = 0
-
-        while retryCount < maxRetries {
+        
+        while true {
             try Task.checkCancellation()
-            
             do {
                 return try await operation()
             } catch {
                 retryCount += 1
-                if retryCount >= maxRetries || !shouldRetry(error) {
-                    log("Повторы остановлены. Ошибка: \(error)")
+                if retryCount > maxRetries || !shouldRetry(error) {
+                    Logger.log("Прекращение повторов после \(retryCount - 1) попыток. Ошибка: \(error)")
                     throw error
                 }
-
-                let delay = pow(2.0, Double(retryCount)) * delayFactor
-                log("Повтор \(retryCount)/\(maxRetries) через \(delay)s из-за ошибки: \(error)")
+                
+                let delay = min(pow(2.0, Double(retryCount)) * initialDelay, maxDelay)
+                Logger.log("Повтор \(retryCount)/\(maxRetries) через \(String(format: "%.2f", delay)) секунд из-за ошибки: \(error)")
                 onRetry?(retryCount, error)
-
+                
                 try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             }
         }
-
-        log("Неизвестная ошибка после всех повторов")
-        throw NetworkError.unknown
-    }
-    
-    // MARK: - Logging
-    private func log(_ message: String) {
-    #if DEBUG
-        print("🔹 \(message)")
-    #endif
     }
 }

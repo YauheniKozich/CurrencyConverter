@@ -8,7 +8,7 @@
 import SwiftUI
 import SwiftData
 
-final class CurrencyLocalDataSource {
+final class CurrencyLocalDataSource: CurrencyLocalDataStoring {
     private let context: ModelContext
 
     init(context: ModelContext) {
