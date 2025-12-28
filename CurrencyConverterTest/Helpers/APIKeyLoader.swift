@@ -12,7 +12,7 @@ enum APIKeyLoader {
         guard let path = Bundle.main.path(forResource: "Config", ofType: "plist"),
               let config = NSDictionary(contentsOfFile: path),
               let apiKey = config["CurrencyAPIKey"] as? String else {
-            print("Не удалось загрузить API-ключ из Config.plist")
+            Logger.log("Не удалось загрузить API-ключ из Config.plist")
             return nil
         }
         return apiKey

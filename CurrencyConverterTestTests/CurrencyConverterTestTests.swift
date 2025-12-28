@@ -33,28 +33,58 @@ class MockURLProtocol: URLProtocol {
     override func stopLoading() {}
 }
 
+class MockLocalDataSource: CurrencyLocalDataStoring {
+    var cachedRate: ExchangeRate?
+    var savedRate: (from: String, to: String, rate: Double)?
+    func loadCachedRate(from: String, to: String) throws -> ExchangeRate? {
+        return cachedRate
+    }
+    func saveRate(from: String, to: String, rate: Double) throws {
+        savedRate = (from, to, rate)
+    }
+}
+
+class MockAPIKeyProvider: APIKeyProviding {
+    func initializeAPIKeyIfNeeded() {
+        //
+    }
+    
+    var apiKey: String? = "TEST_API_KEY"
+    func loadAPIKey() -> String? { apiKey }
+    func saveAPIKey(_ key: String) { self.apiKey = key }
+}
+
 final class CurrencyAPIRepositoryTests: XCTestCase {
     var context: ModelContext!
     var repository: CurrencyAPIRepository!
+    var testConfig: AppConfiguration!
 
-    override func setUp() {
-        super.setUp()
-        do {
-            let schema = Schema([Conversion.self, ExchangeRate.self])
-            let container = try ModelContainer(
-                for: schema,
-                configurations: ModelConfiguration(isStoredInMemoryOnly: true)
-            )
-            context = ModelContext(container)
+    override func setUp() async throws {
+        testConfig = TestHelpers.makeTestConfiguration()
 
-            let config = URLSessionConfiguration.ephemeral
-            config.protocolClasses = [MockURLProtocol.self]
-            _ = URLSession(configuration: config)
+        let schema = Schema([Conversion.self, ExchangeRate.self])
+        let container = try ModelContainer(
+            for: schema,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        context = ModelContext(container)
 
-            repository = CurrencyAPIRepository(context: context)
-        } catch {
-            XCTFail("Failed to set up test: \(error)")
-        }
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockURLProtocol.self]
+        _ = URLSession(configuration: config)
+
+        let localDataSource = MockLocalDataSource()
+        let networkService = NetworkService(session: URLSession(configuration: config))
+        let apiKeyProvider = MockAPIKeyProvider()
+        repository = try CurrencyAPIRepository(
+            context: context,
+            localDataSource: localDataSource,
+            networkService: networkService,
+            apiKeyProvider: apiKeyProvider,
+            apiKey: testConfig.apiKey,
+            apiBaseURL: testConfig.apiBaseURL,
+            cacheTTL: testConfig.cacheTTL
+        )
     }
 
     override func tearDown() {
@@ -76,7 +106,7 @@ final class CurrencyAPIRepositoryTests: XCTestCase {
         }
         """
         let data = jsonString.data(using: .utf8)!
-        let url = "https://api.currencyapi.com/v3/latest?apikey=fca_live_MfAAk9vwpMTfWRENTzieUD9HvUPvUy9e9Z0QTNP0&base_currency=USD&currencies=EUR"
+        let url = "https://api.test.com/v3/latest?apikey=test_api_key&base_currency=USD&currencies=EUR"
 
         MockURLProtocol.handlers[url] = { request in
             let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
@@ -100,7 +130,7 @@ final class CurrencyAPIRepositoryTests: XCTestCase {
         try context.save()
 
         var callCount = 0
-        let url = "https://api.currencyapi.com/v3/latest?apikey=fca_live_MfAAk9vwpMTfWRENTzieUD9HvUPvUy9e9Z0QTNP0&base_currency=USD&currencies=EUR"
+        let url = "https://api.test.com/v3/latest?apikey=test_api_key&base_currency=USD&currencies=EUR"
         MockURLProtocol.handlers[url] = { _ in
             callCount += 1
             let response = HTTPURLResponse(url: URL(string: "https://api.currencyapi.com")!,
@@ -123,7 +153,7 @@ final class CurrencyAPIRepositoryTests: XCTestCase {
     }
 
     func testConvertInvalidJSON() async throws {
-        let url = "https://api.currencyapi.com/v3/latest?apikey=fca_live_MfAAk9vwpMTfWRENTzieUD9HvUPvUy9e9Z0QTNP0&base_currency=USD&currencies=EUR"
+        let url = "https://api.test.com/v3/latest?apikey=test_api_key&base_currency=USD&currencies=EUR"
         MockURLProtocol.handlers[url] = { request in
             let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
             let data = "invalid json".data(using: .utf8)!
@@ -149,7 +179,7 @@ final class CurrencyAPIRepositoryTests: XCTestCase {
         }
         """
         let data = jsonString.data(using: .utf8)!
-        let url = "https://api.currencyapi.com/v3/currencies?apikey=fca_live_MfAAk9vwpMTfWRENTzieUD9HvUPvUy9e9Z0QTNP0"
+        let url = "https://api.test.com/v3/currencies?apikey=test_api_key"
 
         MockURLProtocol.handlers[url] = { request in
             let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
@@ -169,7 +199,7 @@ final class CurrencyAPIRepositoryTests: XCTestCase {
         }
         """
         let data = jsonString.data(using: .utf8)!
-        let url = "https://api.currencyapi.com/v3/currencies?apikey=fca_live_MfAAk9vwpMTfWRENTzieUD9HvUPvUy9e9Z0QTNP0"
+        let url = "https://api.test.com/v3/currencies?apikey=test_api_key"
 
         MockURLProtocol.handlers[url] = { request in
             let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
@@ -196,7 +226,7 @@ final class CurrencyAPIRepositoryTests: XCTestCase {
         }
         """
         let data = jsonString.data(using: .utf8)!
-        let url = "https://api.currencyapi.com/v3/latest?apikey=fca_live_MfAAk9vwpMTfWRENTzieUD9HvUPvUy9e9Z0QTNP0&base_currency=USD&currencies=EUR"
+        let url = "https://api.test.com/v3/latest?apikey=test_api_key&base_currency=USD&currencies=EUR"
         MockURLProtocol.handlers[url] = { request in
             let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
             return (response, data)
@@ -208,7 +238,7 @@ final class CurrencyAPIRepositoryTests: XCTestCase {
     }
 
     func testConvertNoInternetAndNoCacheFails() async throws {
-        let url = "https://api.currencyapi.com/v3/latest?apikey=fca_live_MfAAk9vwpMTfWRENTzieUD9HvUPvUy9e9Z0QTNP0&base_currency=USD&currencies=EUR"
+        let url = "https://api.test.com/v3/latest?apikey=test_api_key&base_currency=USD&currencies=EUR"
         MockURLProtocol.handlers[url] = { _ in
             throw URLError(.notConnectedToInternet)
         }
@@ -216,8 +246,10 @@ final class CurrencyAPIRepositoryTests: XCTestCase {
         do {
             _ = try await repository.convert(from: "USD", to: "EUR", amount: 10)
             XCTFail("Expected failure when no internet and no cache")
+        } catch let error as CurrencyAPIRepositoryError {
+            XCTAssertEqual(error, .noCacheAvailable)
         } catch {
-            XCTAssertTrue(error is URLError)
+            XCTFail("Expected CurrencyAPIRepositoryError.noCacheAvailable, got \(error)")
         }
     }
 
@@ -232,7 +264,7 @@ final class CurrencyAPIRepositoryTests: XCTestCase {
         }
         """
         let data = jsonString.data(using: .utf8)!
-        let url = "https://api.currencyapi.com/v3/currencies?apikey=fca_live_MfAAk9vwpMTfWRENTzieUD9HvUPvUy9e9Z0QTNP0"
+        let url = "https://api.test.com/v3/currencies?apikey=test_api_key"
 
         MockURLProtocol.handlers[url] = { request in
             let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!

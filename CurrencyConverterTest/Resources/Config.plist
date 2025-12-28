@@ -4,5 +4,15 @@
 <dict>
 	<key>CurrencyAPIKey</key>
 	<string>fca_live_MfAAk9vwpMTfWRENTzieUD9HvUPvUy9e9Z0QTNP0</string>
+	<key>APIBaseURL</key>
+	<string>https://api.currencyapi.com</string>
+	<key>CacheTTL</key>
+	<integer>3600</integer>
+	<key>NetworkTimeout</key>
+	<integer>20</integer>
+	<key>KeychainService</key>
+	<string>com.yourapp.currencyconverter</string>
+	<key>KeychainAccount</key>
+	<string>CurrencyAPIKey</string>
 </dict>
 </plist>

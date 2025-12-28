@@ -10,54 +10,88 @@ import SwiftData
 
 @MainActor
 final class ConverterViewModel: ObservableObject {
-    @AppStorage("fromCurrency") var fromCurrency = "USD"
-    @AppStorage("toCurrency") var toCurrency = "RUB"
+    // MARK: - Published Properties
+    @Published var fromCurrency = "USD" {
+        didSet {
+            if isInitialized {
+                userDefaults.set(fromCurrency, forKey: "fromCurrency")
+            }
+        }
+    }
+
+    @Published var toCurrency = "RUB" {
+        didSet {
+            if isInitialized {
+                userDefaults.set(toCurrency, forKey: "toCurrency")
+            }
+        }
+    }
+
     @Published var amount = ""
     @Published var result = ""
     @Published var rate = ""
     @Published var errorMessage: String?
-    
+
     @Published var currencies: [String] = []
     @Published var isLoadingCurrencies = false
     @Published var currenciesLoadingError: String?
-    
+
+    // MARK: - Dependencies
     private let repository: CurrencyRepository
-    
+    private let numberFormatter: NumberFormatting
+    private let userDefaults: UserDefaultsProtocol
+
+    // MARK: - Private Properties
     private var convertTask: Task<Void, Never>? = nil
     private var loadCurrenciesTask: Task<Void, Never>? = nil
-    
-    init(repository: CurrencyRepository) {
+    private var isInitialized = false
+
+    init(repository: CurrencyRepository,
+         numberFormatter: NumberFormatting,
+         userDefaults: UserDefaultsProtocol = UserDefaults.standard) {
         self.repository = repository
+        self.numberFormatter = numberFormatter
+        self.userDefaults = userDefaults
+
+        // Load saved currencies from UserDefaults
+        self.fromCurrency = userDefaults.string(forKey: "fromCurrency") ?? "USD"
+        self.toCurrency = userDefaults.string(forKey: "toCurrency") ?? "RUB"
+
+        // Mark as initialized after setting initial values
+        self.isInitialized = true
     }
-    
+
     func convert() {
         convertTask?.cancel()
-        convertTask = Task {
-            await performConversion()
+        convertTask = Task { @MainActor in
+            await self.performConversion()
         }
     }
     
     func loadCurrencies() {
         loadCurrenciesTask?.cancel()
-        loadCurrenciesTask = Task {
-            await performLoadCurrencies()
+        loadCurrenciesTask = Task { @MainActor in
+            await self.performLoadCurrencies()
         }
     }
     
     private func performConversion() async {
-        guard let amountValue = Double(amount) else {
+        guard let amountValue = numberFormatter.parseDecimal(amount) else {
             errorMessage = "Неверный формат суммы"
             return
         }
+
+        guard amountValue >= 0 else {
+            errorMessage = "Сумма должна быть положительной"
+            return
+        }
+
         do {
             let conversion = try await repository.convert(from: fromCurrency, to: toCurrency, amount: amountValue)
-            
-            let resultFormatter = makeFormatter(maxFractionDigits: 2)
-            result = resultFormatter.string(from: NSNumber(value: conversion.result)) ?? "\(conversion.result)"
-            
-            let rateFormatter = makeFormatter(maxFractionDigits: 4)
-            rate = rateFormatter.string(from: NSNumber(value: conversion.rate)) ?? "\(conversion.rate)"
-            
+
+            result = numberFormatter.formatDecimal(conversion.result, maximumFractionDigits: 2)
+            rate = numberFormatter.formatDecimal(conversion.rate, maximumFractionDigits: 4)
+
             let historyItem = Conversion(from: fromCurrency, to: toCurrency, amount: amountValue, result: conversion.result, rate: conversion.rate)
             await repository.saveConversion(historyItem)
             errorMessage = nil
@@ -78,17 +112,9 @@ final class ConverterViewModel: ObservableObject {
             isLoadingCurrencies = false
             currenciesLoadingError = nil
         } catch {
-            print("Ошибка загрузки валют: \(error)")
+            Logger.log("Ошибка загрузки валют: \(error)")
             currenciesLoadingError = error.localizedDescription
             isLoadingCurrencies = false
         }
-    }
-    
-    private func makeFormatter(maxFractionDigits: Int) -> NumberFormatter {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.maximumFractionDigits = maxFractionDigits
-        formatter.locale = Locale.current
-        return formatter
     }
 }

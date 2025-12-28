@@ -24,24 +24,40 @@ protocol APIEndpointProtocol {
 
 // MARK: - CurrencyAPIEndpoint
 
-enum CurrencyAPIEndpoint: APIEndpointProtocol {
-    case currencies(apiKey: String)
-    case convert(from: String, to: String, apiKey: String)
-    
-    var urlRequest: URLRequest {
-        var components: URLComponents
-        switch self {
-        case .currencies(let apiKey):
-            components = URLComponents(string: "https://api.currencyapi.com/v3/currencies")!
-            components.queryItems = [URLQueryItem(name: "apikey", value: apiKey)]
-        case .convert(let from, let to, let apiKey):
-            components = URLComponents(string: "https://api.currencyapi.com/v3/latest")!
-            components.queryItems = [
+struct CurrencyAPIEndpoint: APIEndpointProtocol {
+    private let baseURL: URL
+    private let path: String
+    private let queryItems: [URLQueryItem]
+
+    init(baseURL: URL, path: String, queryItems: [URLQueryItem] = []) {
+        self.baseURL = baseURL
+        self.path = path
+        self.queryItems = queryItems
+    }
+
+    static func currencies(apiKey: String, baseURL: URL) -> CurrencyAPIEndpoint {
+        return CurrencyAPIEndpoint(
+            baseURL: baseURL,
+            path: "/v3/currencies",
+            queryItems: [URLQueryItem(name: "apikey", value: apiKey)]
+        )
+    }
+
+    static func convert(from: String, to: String, apiKey: String, baseURL: URL) -> CurrencyAPIEndpoint {
+        return CurrencyAPIEndpoint(
+            baseURL: baseURL,
+            path: "/v3/latest",
+            queryItems: [
                 URLQueryItem(name: "base_currency", value: from),
                 URLQueryItem(name: "currencies", value: to),
                 URLQueryItem(name: "apikey", value: apiKey)
             ]
-        }
+        )
+    }
+
+    var urlRequest: URLRequest {
+        var components = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: true)!
+        components.queryItems = queryItems
         let url = components.url!
         return URLRequest(url: url)
     }
