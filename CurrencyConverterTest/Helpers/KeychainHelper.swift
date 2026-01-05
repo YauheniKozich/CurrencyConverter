@@ -6,8 +6,8 @@
 //
 
 import Foundation
+import Security
 
-/// Протокол для управления Keychain
 protocol KeychainManaging {
     func saveString(_ string: String, service: String, account: String)
     func readString(service: String, account: String) -> String?
@@ -15,116 +15,167 @@ protocol KeychainManaging {
     func initializeAPIKeyIfNeeded(service: String, account: String)
 }
 
-/// Утилита для работы с Keychain для безопасного хранения данных, таких как API-ключи.
 final class KeychainHelper: KeychainManaging {
-
+    
+    // MARK: - Public Properties
+    
     static let shared = KeychainHelper()
-
+    
     enum Constants {
         static let service = "com.yourapp.currencyconverter"
         static let account = "CurrencyAPIKey"
     }
     
-    enum KeychainError: Error {
-        case unexpectedStatus(OSStatus)
-        case itemNotFound
-        case invalidData
-    }
+    // MARK: - Private Properties
     
     private init() {}
     
-    /// Инициализирует API-ключ в Keychain, если он отсутствует или устарел.
+    // MARK: - Public metod
+    
     func initializeAPIKeyIfNeeded() {
-        initializeAPIKeyIfNeeded(service: Constants.service, account: Constants.account)
+        initializeAPIKeyIfNeeded(
+            service: Constants.service,
+            account: Constants.account
+        )
     }
-
+    
     func initializeAPIKeyIfNeeded(service: String, account: String) {
+        // Пытаемся прочитать существующий ключ
         if let existingKey = readString(service: service, account: account) {
-            if let newKey = APIKeyLoader.loadAPIKey(), !newKey.isEmpty, newKey != existingKey {
-                saveString(newKey, service: service, account: account)
-                Logger.log("API-ключ обновлен в Keychain из Config.plist")
+            // Проверяем, изменился ли ключ в конфиге
+            guard let newKey = APIKeyLoader.loadAPIKey(),
+                  !newKey.isEmpty,
+                  newKey != existingKey else {
+                return
             }
+            
+            // Обновляем ключ
+            saveString(newKey, service: service, account: account)
+            Logger.log("API-ключ обновлен в Keychain")
             return
         }
-
-        guard let key = APIKeyLoader.loadAPIKey(), !key.isEmpty else {
-            Logger.log("Не удалось загрузить API-ключ из Config.plist или ключ пустой")
+        
+        // Ключа нет - загружаем и сохраняем
+        guard let key = APIKeyLoader.loadAPIKey(),
+              !key.isEmpty else {
+            Logger.log("Ошибка: не удалось загрузить API-ключ из Config.plist")
             return
         }
+        
         saveString(key, service: service, account: account)
-        Logger.log("API-ключ был записан в Keychain из Config.plist")
+        Logger.log("API-ключ сохранен в Keychain")
     }
     
-    /// Сохраняет данные в Keychain.
-    /// - Parameters:
-    ///   - data: Данные для сохранения.
-    ///   - service: Идентификатор сервиса.
-    ///   - account: Идентификатор учетной записи.
-    func save(_ data: Data, service: String, account: String) {
-        do {
-            try saveThrows(data, service: service, account: account)
-        } catch {
-            Logger.log("Keychain save error: \(error)")
+    func saveString(_ string: String, service: String, account: String) {
+        guard !string.isEmpty else {
+            Logger.log("Предупреждение: попытка сохранить пустую строку в Keychain")
+            return
+        }
+        
+        guard let data = string.data(using: .utf8) else {
+            Logger.log("Ошибка: не удалось преобразовать строку в данные")
+            return
+        }
+        
+        save(data, service: service, account: account)
+    }
+    
+    func readString(service: String, account: String) -> String? {
+        guard let data = read(service: service, account: account) else {
+            return nil
+        }
+        
+        guard let string = String(data: data, encoding: .utf8) else {
+            // Данные повреждены - удаляем их
+            delete(service: service, account: account)
+            Logger.log("Предупреждение: поврежденные данные удалены из Keychain")
+            return nil
+        }
+        
+        return string
+    }
+    
+    func delete(service: String, account: String) {
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: account
+        ]
+        
+        let status = SecItemDelete(query as CFDictionary)
+        
+        if status != errSecSuccess && status != errSecItemNotFound {
+            Logger.log("Ошибка удаления из Keychain: \(status)")
         }
     }
     
-    private func saveThrows(_ data: Data, service: String, account: String) throws {
+    // MARK: - Private metods
+    
+    private func save(_ data: Data, service: String, account: String) {
+        // Сначала пытаемся обновить существующую запись
+        if update(data, service: service, account: account) {
+            return
+        }
+        
+        // Если не нашли для обновления - создаем новую
+        add(data, service: service, account: account)
+    }
+    
+    private func update(_ data: Data, service: String, account: String) -> Bool {
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: account
+        ]
+        
+        let attributes: [CFString: Any] = [
+            kSecValueData: data,
+            kSecAttrAccessible: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        ]
+        
+        let status = SecItemUpdate(
+            query as CFDictionary,
+            attributes as CFDictionary
+        )
+        
+        if status == errSecItemNotFound {
+            return false
+        }
+        
+        if status != errSecSuccess {
+            Logger.log("Ошибка обновления в Keychain: \(status)")
+        }
+        
+        return status == errSecSuccess
+    }
+    
+    private func add(_ data: Data, service: String, account: String) {
         let query: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: service,
             kSecAttrAccount: account,
+            kSecValueData: data,
             kSecAttrAccessible: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         ]
         
-        let attributesToUpdate = [kSecValueData: data] as CFDictionary
+        let status = SecItemAdd(query as CFDictionary, nil)
         
-        let status = SecItemUpdate(query as CFDictionary, attributesToUpdate)
-        if status == errSecItemNotFound {
-            let newItem: [CFString: Any] = [
-                kSecClass: kSecClassGenericPassword,
-                kSecAttrService: service,
-                kSecAttrAccount: account,
-                kSecValueData: data,
-                kSecAttrAccessible: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-            ]
+        // Если запись уже существует - сначала удаляем, потом добавляем
+        if status == errSecDuplicateItem {
+            delete(service: service, account: account)
             
-            let addStatus = SecItemAdd(newItem as CFDictionary, nil)
-            if addStatus == errSecDuplicateItem {
-                Logger.log("Duplicate item detected, deleting old key and retrying add.")
-                let deleteStatus = SecItemDelete(query as CFDictionary)
-                if deleteStatus == errSecSuccess {
-                    let retryAddStatus = SecItemAdd(newItem as CFDictionary, nil)
-                    guard retryAddStatus == errSecSuccess else {
-                        throw KeychainError.unexpectedStatus(retryAddStatus)
-                    }
-                    Logger.log("Keychain: Successfully replaced duplicate item.")
-                } else {
-                    throw KeychainError.unexpectedStatus(deleteStatus)
-                }
-            } else if addStatus != errSecSuccess {
-                throw KeychainError.unexpectedStatus(addStatus)
+            // Пробуем добавить снова
+            let retryStatus = SecItemAdd(query as CFDictionary, nil)
+            if retryStatus != errSecSuccess {
+                Logger.log("Ошибка добавления в Keychain после удаления дубликата: \(retryStatus)")
             }
         } else if status != errSecSuccess {
-            throw KeychainError.unexpectedStatus(status)
+            Logger.log("Ошибка добавления в Keychain: \(status)")
         }
     }
     
-    /// Читает данные из Keychain.
-    /// - Parameters:
-    ///   - service: Идентификатор сервиса.
-    ///   - account: Идентификатор учетной записи.
-    /// - Returns: Данные из Keychain или nil, если произошла ошибка.
-    func read(service: String, account: String) -> Data? {
-        do {
-            return try readThrows(service: service, account: account)
-        } catch {
-            Logger.log("Keychain read error: \(error)")
-            return nil
-        }
-    }
-    
-    private func readThrows(service: String, account: String) throws -> Data {
-        var query: [CFString: Any] = [
+    private func read(service: String, account: String) -> Data? {
+        let query: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: service,
             kSecAttrAccount: account,
@@ -133,86 +184,20 @@ final class KeychainHelper: KeychainManaging {
         ]
         
         var result: AnyObject?
-        var status = SecItemCopyMatching(query as CFDictionary, &result)
-        
-        if status == errSecItemNotFound {
-            query[kSecAttrAccessible] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-            status = SecItemCopyMatching(query as CFDictionary, &result)
-        }
-        
-        guard status != errSecItemNotFound else {
-            throw KeychainError.itemNotFound
-        }
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
         
         guard status == errSecSuccess else {
-            throw KeychainError.unexpectedStatus(status)
+            if status != errSecItemNotFound {
+                Logger.log("Ошибка чтения из Keychain: \(status)")
+            }
+            return nil
         }
         
         guard let data = result as? Data, !data.isEmpty else {
-            throw KeychainError.invalidData
+            Logger.log("Получены пустые или некорректные данные из Keychain")
+            return nil
         }
         
         return data
-    }
-    
-    /// Сохраняет строку в Keychain.
-    /// - Parameters:
-    ///   - string: Строка для сохранения.
-    ///   - service: Идентификатор сервиса.
-    ///   - account: Идентификатор учетной записи.
-    func saveString(_ string: String, service: String, account: String) {
-        guard !string.isEmpty else {
-            Logger.log("Cannot save empty string to Keychain")
-            return
-        }
-        guard let data = string.data(using: .utf8) else {
-            Logger.log("Cannot convert string to UTF-8 data")
-            return
-        }
-        save(data, service: service, account: account)
-    }
-    
-    /// Читает строку из Keychain.
-    /// - Parameters:
-    ///   - service: Идентификатор сервиса.
-    ///   - account: Идентификатор учетной записи.
-    /// - Returns: Строка из Keychain или nil, если произошла ошибка.
-    func readString(service: String, account: String) -> String? {
-        guard let data = read(service: service, account: account) else {
-            Logger.log("No data found in Keychain")
-            return nil
-        }
-        guard let string = String(data: data, encoding: .utf8) else {
-            Logger.log("Cannot convert data to string, deleting corrupted data")
-            delete(service: service, account: account)
-            return nil
-        }
-        return string
-    }
-    
-    /// Удаляет данные из Keychain.
-    /// - Parameters:
-    ///   - service: Идентификатор сервиса.
-    ///   - account: Идентификатор учетной записи.
-    func delete(service: String, account: String) {
-        do {
-            try deleteThrows(service: service, account: account)
-        } catch {
-            Logger.log("Keychain delete error: \(error)")
-        }
-    }
-    
-    private func deleteThrows(service: String, account: String) throws {
-        let query: [CFString: Any] = [
-            kSecClass: kSecClassGenericPassword,
-            kSecAttrService: service,
-            kSecAttrAccount: account,
-            kSecAttrAccessible: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-        ]
-        
-        let status = SecItemDelete(query as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw KeychainError.unexpectedStatus(status)
-        }
     }
 }

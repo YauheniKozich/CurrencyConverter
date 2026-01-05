@@ -8,125 +8,124 @@
 import Foundation
 import SwiftData
 
-/// Контейнер зависимостей для инверсии контроля
-@MainActor
-protocol DependencyContainerProtocol {
-    var configuration: AppConfiguration { get }
-    var modelContainer: ModelContainer { get }
-    var modelContext: ModelContext { get }
-
-    func makeCurrencyRepository() -> Result<CurrencyRepository, AppError>
-    func makeConverterViewModel() -> Result<ConverterViewModel, AppError>
-    func makeNetworkService() -> CurrencyNetworking
-    func makeLocalDataSource(context: ModelContext) -> CurrencyLocalDataStoring
-    func makeAPIKeyProvider() -> APIKeyProviding
+// Контейнер для управления зависимостями в приложении
+protocol Dependencies {
+    var config: AppConfiguration { get }
+    var database: ModelContainer { get }
+    var dbContext: ModelContext { get }
+    
+    func createRepository() throws -> CurrencyRepository
+    @MainActor func createConverterScreen() throws -> ConverterViewModel
+    func networking() -> CurrencyNetworking
 }
 
-/// Реализация контейнера зависимостей
-final class DependencyContainer: DependencyContainerProtocol {
-    let configuration: AppConfiguration
-    let modelContainer: ModelContainer
-    let modelContext: ModelContext
-
-    private var _networkService: CurrencyNetworking?
-    private var _apiKeyProvider: APIKeyProviding?
-
-    init(configuration: AppConfiguration = AppConfiguration()) throws {
-        self.configuration = configuration
-
-        let schema = Schema([Conversion.self, ExchangeRate.self])
-        self.modelContainer = try ModelContainer(for: schema)
-        self.modelContext = ModelContext(modelContainer)
+final class AppDependencies: Dependencies {
+    
+    let config: AppConfiguration
+    let database: ModelContainer
+    let dbContext: ModelContext
+    
+    private var networkService: CurrencyNetworking?
+    private var keychainService: APIKeyProviding?
+    
+    // MARK: - Initialization
+    
+    // Основной инициализатор для продакшена
+    init() throws {
+        config = AppConfiguration()
+        
+        let schema = Schema([
+            Conversion.self,
+            ExchangeRate.self
+        ])
+        
+        database = try ModelContainer(for: schema)
+        dbContext = ModelContext(database)
     }
-
-    // Для тестирования с in-memory контейнером
-    init(configuration: AppConfiguration = AppConfiguration(),
-         modelContainer: ModelContainer,
-         modelContext: ModelContext) {
-        self.configuration = configuration
-        self.modelContainer = modelContainer
-        self.modelContext = modelContext
+    
+    // Упрощенный инициализатор для тестов
+    init(config: AppConfiguration,
+         database: ModelContainer,
+         context: ModelContext) {
+        self.config = config
+        self.database = database
+        self.dbContext = context
     }
-
-    func makeCurrencyRepository() -> Result<CurrencyRepository, AppError> {
-        let localDataSource = makeLocalDataSource(context: modelContext)
-        let networkService = makeNetworkService()
-        let apiKeyProvider = makeAPIKeyProvider()
-
-        do {
-            let repository = try CurrencyAPIRepository(
-                context: modelContext,
-                localDataSource: localDataSource,
-                networkService: networkService,
-                apiKeyProvider: apiKeyProvider,
-                apiKey: configuration.apiKey,
-                apiBaseURL: configuration.apiBaseURL,
-                cacheTTL: configuration.cacheTTL
-            )
-            return .success(repository)
-        } catch {
-            let appError = AppError.configurationError("Не удалось создать репозиторий: \(error.localizedDescription)")
-            return .failure(appError)
-        }
-    }
-
-    @MainActor func makeConverterViewModel() -> Result<ConverterViewModel, AppError> {
-        let repositoryResult = makeCurrencyRepository()
-
-        switch repositoryResult {
-        case .success(let repository):
-            let viewModel = ConverterViewModel(
-                repository: repository,
-                numberFormatter: makeNumberFormatter(),
-                userDefaults: UserDefaults.standard
-            )
-            return .success(viewModel)
-        case .failure(let error):
-            return .failure(error)
-        }
-    }
-
-    func makeNetworkService() -> CurrencyNetworking {
-        if let networkService = _networkService {
-            return networkService
-        }
-
-        let session = makeURLSession()
-        let networkService = NetworkService(session: session)
-        _networkService = networkService
-        return networkService
-    }
-
-    func makeLocalDataSource(context: ModelContext) -> CurrencyLocalDataStoring {
-        return CurrencyLocalDataSource(context: context)
-    }
-
-    func makeAPIKeyProvider() -> APIKeyProviding {
-        if let apiKeyProvider = _apiKeyProvider {
-            return apiKeyProvider
-        }
-
-        let apiKeyProvider = KeychainAPIKeyProvider(
-            service: configuration.keychainService,
-            account: configuration.keychainAccount
+    
+    // MARK: - Create dependoncy
+    
+    func createRepository() throws -> CurrencyRepository {
+        let localStorage = CurrencyLocalDataSource(context: dbContext)
+        let networking = networking()
+        let keychain = keychainProvider()
+        
+        return try CurrencyAPIRepository(
+            context: dbContext,
+            localDataSource: localStorage,
+            networkService: networking,
+            apiKeyProvider: keychain,
+            apiKey: config.apiKey,
+            apiBaseURL: config.apiBaseURL,
+            cacheTTL: config.cacheTTL
         )
-        _apiKeyProvider = apiKeyProvider
-        return apiKeyProvider
     }
-
-    private func makeURLSession() -> URLSession {
-        let sessionConfig = URLSessionConfiguration.ephemeral
-        sessionConfig.timeoutIntervalForRequest = configuration.networkTimeout
-        sessionConfig.timeoutIntervalForResource = configuration.networkTimeout * 2
-        sessionConfig.httpAdditionalHeaders = [
-            "Accept": "application/json",
-            "Alt-Used": "\(configuration.apiBaseURL.host ?? "api.currencyapi.com")"
+    
+    @MainActor
+    func createConverterScreen() throws -> ConverterViewModel {
+        let repository = try createRepository()
+        let formatter = NumberFormatterService()
+        
+        return ConverterViewModel(
+            repository: repository,
+            numberFormatter: formatter,
+            userDefaults: UserDefaults.standard as UserDefaultsProtocol
+        )
+    }
+    
+    func networking() -> CurrencyNetworking {
+        // Используем кэшированный сервис, если есть
+        if let existing = networkService {
+            return existing
+        }
+        
+        let session = createSession()
+        let service = NetworkService(session: session)
+        
+        networkService = service
+        return service
+    }
+    
+    // MARK: - Helper methods
+    
+    private func keychainProvider() -> APIKeyProviding {
+        if let existing = keychainService {
+            return existing
+        }
+        
+        let provider = KeychainAPIKeyProvider(
+            service: config.keychainService,
+            account: config.keychainAccount
+        )
+        
+        keychainService = provider
+        return provider
+    }
+    
+    private func createSession() -> URLSession {
+        let config = URLSessionConfiguration.ephemeral
+        
+        config.timeoutIntervalForRequest = self.config.networkTimeout
+        config.timeoutIntervalForResource = self.config.networkTimeout * 2
+        
+        config.httpAdditionalHeaders = [
+            "Accept": "application/json"
         ]
-        sessionConfig.multipathServiceType = .interactive
-        return URLSession(configuration: sessionConfig)
-    }
-
-    private func makeNumberFormatter() -> NumberFormatting {
-        return NumberFormatterService()
+        
+        // Для отладки можно добавить хост
+        if let host = self.config.apiBaseURL.host {
+            config.httpAdditionalHeaders?["Alt-Used"] = host
+        }
+        
+        return URLSession(configuration: config)
     }
 }

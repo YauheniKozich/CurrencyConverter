@@ -8,6 +8,8 @@
 import SwiftData
 import Foundation
 
+// MARK: - Protocols
+
 protocol CurrencyLocalDataStoring {
     func loadCachedRate(from: String, to: String) throws -> ExchangeRate?
     func saveRate(from: String, to: String, rate: Double) throws
@@ -24,18 +26,12 @@ protocol APIKeyProviding {
     func initializeAPIKeyIfNeeded()
 }
 
-enum CurrencyAPIRepositoryError: Error {
-    case missingAPIKey
-    case invalidCurrencyCodes
-    case invalidAmount
-    case noCacheAvailable
-}
+// MARK: - CurrencyAPI Repository
 
-// MARK: - CurrencyAPIRepository
-
-final class CurrencyAPIRepository: CurrencyRepository {
-    // MARK: - Properties
-
+final class CurrencyAPIRepository {
+    
+    // MARK: - Property
+    
     private let cacheTTL: TimeInterval
     private let context: ModelContext
     private let localDataSource: CurrencyLocalDataStoring
@@ -43,7 +39,9 @@ final class CurrencyAPIRepository: CurrencyRepository {
     private let apiKeyProvider: APIKeyProviding
     private let apiKey: String
     private let apiBaseURL: URL
-
+    
+    // MARK: - Initialization
+    
     init(context: ModelContext,
          localDataSource: CurrencyLocalDataStoring,
          networkService: CurrencyNetworking,
@@ -51,6 +49,7 @@ final class CurrencyAPIRepository: CurrencyRepository {
          apiKey: String,
          apiBaseURL: URL,
          cacheTTL: TimeInterval = 3600) throws {
+        
         self.context = context
         self.localDataSource = localDataSource
         self.networkService = networkService
@@ -58,113 +57,110 @@ final class CurrencyAPIRepository: CurrencyRepository {
         self.apiKey = apiKey
         self.apiBaseURL = apiBaseURL
         self.cacheTTL = cacheTTL
-
+        
         apiKeyProvider.initializeAPIKeyIfNeeded()
+        
         guard !apiKey.isEmpty else {
-            Logger.log("API ключ пустой")
-            throw CurrencyAPIRepositoryError.missingAPIKey
+            Logger.log("Ошибка: API ключ не найден")
+            throw AppError.configurationError("Отсутствует API ключ")
         }
     }
-
-    // MARK: - CurrencyRemoteDataSource
-
-    /// Загружает список поддерживаемых валют.
-    /// - Returns: Словарь валют с их кодами и данными.
-    /// - Throws: Ошибка при сетевом запросе или декодировании.
+    
+    // MARK: - Public methods
+    
     func fetchSupportedCurrencies() async throws -> [String: Currency] {
-        do {
-            let endpoint = CurrencyAPIEndpoint.currencies(apiKey: apiKey, baseURL: apiBaseURL)
-            let data = try await networkService.request(endpoint)
-            let decoded: CurrencyResponse = try networkService.decode(data)
-            Logger.log("Успешно получено: \(decoded.data.count) валют")
-            return decoded.data
-        } catch let decodingError as DecodingError {
-            throw decodingError
-        } catch {
-            Logger.log("Ошибка при получении валют: \(error)")
-            throw error
-        }
+        let endpoint = CurrencyAPIEndpoint.currencies(
+            apiKey: apiKey,
+            baseURL: apiBaseURL
+        )
+        
+        let data = try await networkService.request(endpoint)
+        let decoded: CurrencyResponse = try networkService.decode(data)
+        
+        Logger.log("Загружено валют: \(decoded.data.count)")
+        return decoded.data
     }
-
-    /// Конвертирует сумму из одной валюты в другую с использованием кэша или сетевого запроса.
-    /// - Parameters:
-    ///   - from: Код исходной валюты.
-    ///   - to: Код целевой валюты.
-    ///   - amount: Сумма для конвертации.
-    /// - Returns: Результат конвертации с курсом.
-    /// - Throws: Ошибка при некорректных данных, сетевом запросе или отсутствии кэша.
+    
     func convert(from: String, to: String, amount: Double) async throws -> ConversionResult {
         guard !from.isEmpty, !to.isEmpty else {
-            throw CurrencyAPIRepositoryError.invalidCurrencyCodes
+            throw AppError.validationError("Не указаны валюты для конвертации")
         }
+        
         guard amount >= 0, !amount.isNaN else {
-            throw CurrencyAPIRepositoryError.invalidAmount
+            throw AppError.validationError("Некорректная сумма: \(amount)")
         }
-
+        
+        // Пробуем получить курс из кэша
+        if let cached = try localDataSource.loadCachedRate(from: from, to: to),
+           Date().timeIntervalSince(cached.timestamp) < cacheTTL {
+            Logger.log("Используем кэшированный курс \(from)/\(to)")
+            return ConversionResult(result: amount * cached.rate, rate: cached.rate)
+        }
+        
+        // Если кэша нет или он устарел - запрашиваем из сети
         do {
-            if let cached = try localDataSource.loadCachedRate(from: from, to: to),
-               Date().timeIntervalSince(cached.timestamp) < cacheTTL {
-                Logger.log("Использование кешированного курса для \(from)/\(to)")
-                return ConversionResult(result: amount * cached.rate, rate: cached.rate)
-            }
-
-            return try await fetchAndCacheConversion(from: from, to: to, amount: amount)
-        } catch let decodingError as DecodingError {
-            throw decodingError
+            let result = try await fetchAndCacheConversion(from: from, to: to, amount: amount)
+            return result
         } catch {
-            Logger.log("Ошибка при конвертации, попытка fallback: \(error)")
+            Logger.log("Ошибка при запросе курса: \(error)")
+            
+            // Fallback: пытаемся использовать старый кэш, если есть
             if let cached = try? localDataSource.loadCachedRate(from: from, to: to) {
-                Logger.log("Использование кешированного курса в fallback для \(from)/\(to)")
+                Logger.log("Используем устаревший кэш \(from)/\(to) как fallback")
                 return ConversionResult(result: amount * cached.rate, rate: cached.rate)
-            } else {
-                throw CurrencyAPIRepositoryError.noCacheAvailable
             }
+            
+            throw AppError.networkError(error)
         }
     }
-
-    // MARK: - Private Helpers
-
-    private func fetchAndCacheConversion(from: String, to: String, amount: Double) async throws -> ConversionResult {
-        do {
-            let endpoint = CurrencyAPIEndpoint.convert(from: from, to: to, apiKey: apiKey, baseURL: apiBaseURL)
-            let data = try await networkService.request(endpoint)
-            let decoded: CurrencyAPIResponse = try networkService.decode(data)
-
-            guard let rateObj = decoded.data[to] else {
-                let errorMsg = "Нет курса для выбранной валюты: \(to)"
-                Logger.log(errorMsg)
-                throw NSError(domain: "CurrencyAPI", code: 0, userInfo: [NSLocalizedDescriptionKey: errorMsg])
-            }
-
-            let rate = rateObj.value
-            Logger.log("Курс \(from)/\(to): \(rate)")
-
-            try localDataSource.saveRate(from: from, to: to, rate: rate)
-            Logger.log("Курс успешно сохранен в кэш: \(from)/\(to)")
-
-            return ConversionResult(result: amount * rate, rate: rate)
-        } catch let decodingError as DecodingError {
-            throw decodingError
-        } catch {
-            Logger.log("Ошибка при fetchAndCacheConversion: \(error)")
-            throw error
-        }
-    }
-
-    // MARK: - Save Conversion
-
-    /// Сохраняет результат конверсии в контекст SwiftData.
-    /// - Parameter conversion: Объект конверсии для сохранения.
+    
     func saveConversion(_ conversion: Conversion) async {
         context.insert(conversion)
+        
         do {
             try context.save()
-            Logger.log("Конверсия успешно сохранена")
+            Logger.log("Конверсия сохранена")
         } catch {
-            Logger.log("Ошибка при сохранении контекста: \(error)")
+            Logger.log("Не удалось сохранить конверсию: \(error)")
         }
+    }
+    
+    // MARK: - Private methods
+    
+    private func fetchAndCacheConversion(from: String, to: String, amount: Double) async throws -> ConversionResult {
+        let endpoint = CurrencyAPIEndpoint.convert(
+            from: from,
+            to: to,
+            apiKey: apiKey,
+            baseURL: apiBaseURL
+        )
+        
+        let data = try await networkService.request(endpoint)
+        let decoded: CurrencyAPIResponse = try networkService.decode(data)
+        
+        guard let rateObj = decoded.data[to] else {
+            throw AppError.dataError("Нет курса для валюты \(to)")
+        }
+        
+        let rate = rateObj.value
+        Logger.log("Получен курс \(from)/\(to): \(rate)")
+        
+        // Сохраняем в кэш
+        try localDataSource.saveRate(from: from, to: to, rate: rate)
+        Logger.log("Курс сохранен в кэш")
+        
+        return ConversionResult(result: amount * rate, rate: rate)
     }
 }
 
-// MARK: - NetworkService CurrencyNetworking Conformance
-extension NetworkService: CurrencyNetworking {}
+// MARK: - CurrencyRepository protocol
+
+extension CurrencyAPIRepository: CurrencyRepository {
+    // Реализация уже есть в основных методах класса
+}
+
+// MARK: - Extension for NetworkService
+
+extension NetworkService: CurrencyNetworking {
+    // Реализация методов протокола уже есть в NetworkService
+}

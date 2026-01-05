@@ -10,7 +10,7 @@ import SwiftData
 
 struct ConverterView: View {
     @ObservedObject var viewModel: ConverterViewModel
-
+    
     var body: some View {
         NavigationStack {
             Form {
@@ -24,7 +24,7 @@ struct ConverterView: View {
                     }
                     .disabled(viewModel.currencies.isEmpty)
                 }
-
+                
                 Section(header: Text("Сумма")) {
                     TextField("Введите сумму", text: $viewModel.amount)
                         .keyboardType(.decimalPad)
@@ -43,33 +43,33 @@ struct ConverterView: View {
                                 .stroke(viewModel.errorMessage == "Неверный формат суммы" ? Color.red : Color.clear, lineWidth: 1)
                         )
                 }
-
+                
                 if viewModel.isLoadingCurrencies {
                     ProgressView("Загрузка валют…")
                 }
-
+                
                 if let error = viewModel.currenciesLoadingError {
                     Text(error)
                         .foregroundColor(.red)
                 }
-
+                
                 Button("Конвертировать") {
                     viewModel.convert()
                 }
                 .disabled(viewModel.amount.isEmpty || viewModel.currencies.isEmpty)
-
+                
                 if !viewModel.result.isEmpty {
                     Section(header: Text("Результат")) {
                         Text("\(viewModel.amount) \(viewModel.fromCurrency) = \(viewModel.result) \(viewModel.toCurrency)")
                         Text("Курс: \(viewModel.rate)")
                     }
                 }
-
+                
                 if let error = viewModel.errorMessage {
                     Text(error)
                         .foregroundStyle(.red)
                 }
-
+                
                 NavigationLink("История") {
                     HistoryView()
                 }

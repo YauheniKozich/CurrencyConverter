@@ -7,7 +7,7 @@
 
 import Foundation
 
-// MARK: - NetworkError
+// MARK: - Network Error
 
 enum NetworkError: Error {
     case invalidResponse
@@ -22,29 +22,30 @@ protocol APIEndpointProtocol {
     var urlRequest: URLRequest { get }
 }
 
-// MARK: - CurrencyAPIEndpoint
+// MARK: - Endpoint Currency API
 
 struct CurrencyAPIEndpoint: APIEndpointProtocol {
+    
     private let baseURL: URL
     private let path: String
     private let queryItems: [URLQueryItem]
-
+    
     init(baseURL: URL, path: String, queryItems: [URLQueryItem] = []) {
         self.baseURL = baseURL
         self.path = path
         self.queryItems = queryItems
     }
-
+    
     static func currencies(apiKey: String, baseURL: URL) -> CurrencyAPIEndpoint {
-        return CurrencyAPIEndpoint(
+        CurrencyAPIEndpoint(
             baseURL: baseURL,
             path: "/v3/currencies",
             queryItems: [URLQueryItem(name: "apikey", value: apiKey)]
         )
     }
-
+    
     static func convert(from: String, to: String, apiKey: String, baseURL: URL) -> CurrencyAPIEndpoint {
-        return CurrencyAPIEndpoint(
+        CurrencyAPIEndpoint(
             baseURL: baseURL,
             path: "/v3/latest",
             queryItems: [
@@ -54,97 +55,116 @@ struct CurrencyAPIEndpoint: APIEndpointProtocol {
             ]
         )
     }
-
+    
     var urlRequest: URLRequest {
-        var components = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: true)!
-        components.queryItems = queryItems
-        let url = components.url!
-        return URLRequest(url: url)
+        let urlWithPath = baseURL.appendingPathComponent(path)
+        var components = URLComponents(url: urlWithPath, resolvingAgainstBaseURL: false)!
+        
+        if !queryItems.isEmpty {
+            components.queryItems = queryItems
+        }
+        
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "GET"
+        
+        return request
     }
 }
 
-// MARK: - NetworkService
+// MARK: - Network Service
 
 final class NetworkService {
+    
     private let session: URLSession
     private let jsonDecoder: JSONDecoder
     
-    init(session: URLSession = NetworkService.makeDefaultSession(),
-         decoder: JSONDecoder = JSONDecoder()) {
+    init(session: URLSession = .shared, decoder: JSONDecoder = JSONDecoder()) {
         self.session = session
         self.jsonDecoder = decoder
-    }
-    
-    private static func makeDefaultSession() -> URLSession {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 20
-        configuration.timeoutIntervalForResource = 40
-        configuration.httpAdditionalHeaders = [
-            "Accept": "application/json",
-            "Alt-Used": "api.currencyapi.com"
-        ]
-        configuration.multipathServiceType = .interactive
-        return URLSession(configuration: configuration)
+        
+        jsonDecoder.dateDecodingStrategy = .iso8601
+        jsonDecoder.keyDecodingStrategy = .convertFromSnakeCase
     }
     
     func decode<T: Decodable>(_ data: Data) throws -> T {
         do {
             return try jsonDecoder.decode(T.self, from: data)
         } catch {
-            Logger.log("Ошибка декодирования: \(error)")
+            Logger.log("Не удалось декодировать ответ: \(error)")
             throw NetworkError.decodingError(error)
         }
     }
     
     func request(_ endpoint: APIEndpointProtocol) async throws -> Data {
-        try await performWithRetry {
-            Logger.log("Выполняется запрос: \(endpoint.urlRequest.url?.absoluteString ?? "unknown URL")")
-            
-            let (data, response) = try await self.session.data(for: endpoint.urlRequest)
+        let request = endpoint.urlRequest
+        
+        Logger.log("Запрос: \(request.url?.absoluteString ?? "без URL")")
+        
+        do {
+            let (data, response) = try await session.data(for: request)
             
             guard let httpResponse = response as? HTTPURLResponse else {
-                Logger.log("Ошибка: неверный ответ сервера")
                 throw NetworkError.invalidResponse
             }
             
+            Logger.log("Статус: \(httpResponse.statusCode)")
+            
             guard (200...299).contains(httpResponse.statusCode) else {
-                Logger.log("Ошибка: статус код \(httpResponse.statusCode)")
                 throw NetworkError.statusCodeError(httpResponse.statusCode)
             }
             
             return data
+        } catch {
+            Logger.log("Ошибка запроса: \(error)")
+            throw error
         }
     }
     
-    // MARK: - Retry Logic
-    
-    private func performWithRetry<T>(
-        maxRetries: Int = 5,
-        initialDelay: Double = 0.5,
-        maxDelay: Double = 10,
-        shouldRetry: @escaping (Error) -> Bool = { _ in true },
-        onRetry: ((Int, Error) -> Void)? = nil,
-        operation: @escaping () async throws -> T
-    ) async throws -> T {
-        var retryCount = 0
+    func requestWithRetry(
+        _ endpoint: APIEndpointProtocol,
+        maxRetries: Int = 3,
+        retryDelay: Double = 1.0
+    ) async throws -> Data {
+        var lastError: Error?
         
-        while true {
-            try Task.checkCancellation()
+        for attempt in 1...maxRetries {
             do {
-                return try await operation()
+                return try await request(endpoint)
             } catch {
-                retryCount += 1
-                if retryCount > maxRetries || !shouldRetry(error) {
-                    Logger.log("Прекращение повторов после \(retryCount - 1) попыток. Ошибка: \(error)")
-                    throw error
-                }
+                lastError = error
+                Logger.log("Попытка \(attempt) не удалась: \(error)")
                 
-                let delay = min(pow(2.0, Double(retryCount)) * initialDelay, maxDelay)
-                Logger.log("Повтор \(retryCount)/\(maxRetries) через \(String(format: "%.2f", delay)) секунд из-за ошибки: \(error)")
-                onRetry?(retryCount, error)
+                // Если это последняя попытка - выходим
+                guard attempt < maxRetries else { break }
+                
+                // Ждем перед следующей попыткой
+                let delay = retryDelay * Double(attempt)
+                Logger.log("Ждем \(String(format: "%.1f", delay)) секунд перед следующей попыткой")
                 
                 try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             }
         }
+        
+        // Если дошли сюда - все попытки исчерпаны
+        throw lastError ?? NetworkError.unknown
+    }
+}
+
+// MARK: - Extension Network Service
+
+extension NetworkService {
+    
+    // Упрощенный запрос с автоматическим декодированием
+    func requestDecoded<T: Decodable>(_ endpoint: APIEndpointProtocol) async throws -> T {
+        let data = try await request(endpoint)
+        return try decode(data)
+    }
+    
+    func requestDecodedWithRetry<T: Decodable>(
+        _ endpoint: APIEndpointProtocol,
+        maxRetries: Int = 3
+    ) async throws -> T {
+        let data = try await requestWithRetry(endpoint, maxRetries: maxRetries)
+        return try decode(data)
     }
 }

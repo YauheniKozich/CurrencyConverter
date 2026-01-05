@@ -10,7 +10,7 @@ import Foundation
 final class Logger {
     static func log(_ message: String) {
 #if DEBUG
-        print("🔹 \(message)")
+        print("\(message)")
 #endif
     }
 }
