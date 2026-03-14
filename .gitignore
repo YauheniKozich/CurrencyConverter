@@ -1,0 +1,68 @@
+# MCP конфигурация
+# Глобальная с токенами - игнорируется
+~/.qwen/mcp.json
+.qwen/mcp.json
+
+# Локальная без токенов - можно коммитить
+!mcp.json.example
+
+# Qwen Code контекст
+QWEN.md
+.qwen/context.md
+
+# Xcode
+DerivedData/
+*.xcworkspace
+!*.xcworkspace/contents.xcworkspacedata
+*.xcuserstate
+*.xcuserdata
+**/xcuserdata/**
+*.xcscheme
+*.playground
+.build/
+.swiftpm/
+
+# CocoaPods
+Pods/
+*.xcconfig
+Podfile.lock
+manifest.lock
+
+# Carthage
+Carthage/Build/
+
+# Swift Package Manager
+Packages/
+Package.pins
+Package.resolved
+.checkouts/
+
+# Build outputs
+build/
+*.app
+*.dSYM/
+*.framework
+
+# Logs
+*.log
+logs/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Temporary files
+*.tmp
+*.temp
+.cache/

@@ -7,55 +7,92 @@
 
 import Foundation
 
+enum ConfigurationError: LocalizedError {
+    case configFileNotFound
+    case invalidAPIKey
+    case invalidBaseURL
+
+    var errorDescription: String? {
+        switch self {
+        case .configFileNotFound:
+            return "Файл конфигурации не найден"
+        case .invalidAPIKey:
+            return "API ключ не найден или пустой"
+        case .invalidBaseURL:
+            return "Неверный базовый URL API"
+        }
+    }
+
+    var recoverySuggestion: String? {
+        switch self {
+        case .configFileNotFound:
+            return "Проверьте наличие файла Config.plist в проекте"
+        case .invalidAPIKey:
+            return "Добавьте корректный API ключ в Config.plist или задайте CURRENCY_API_KEY в окружении схемы"
+        case .invalidBaseURL:
+            return "Проверьте правильность URL в Config.plist"
+        }
+    }
+}
+
 // Конфигурация приложения, загружаемая из файла Config.plist
 struct AppConfiguration {
-    
+
     // MARK: - Public Properties
-    
+
     let apiKey: String
     let apiBaseURL: URL
     let cacheTTL: TimeInterval
     let networkTimeout: TimeInterval
     let keychainService: String
     let keychainAccount: String
-    
+
     // MARK: - Initialization
-    
-    init() {
+
+    init() throws {
         guard let configPath = Bundle.main.path(forResource: "Config", ofType: "plist"),
               let config = NSDictionary(contentsOfFile: configPath) else {
-            fatalError("Не удалось загрузить Config.plist")
+            throw ConfigurationError.configFileNotFound
         }
-        
-        guard let apiKey = config["CurrencyAPIKey"] as? String,
-              !apiKey.isEmpty else {
-            fatalError("API ключ не найден или пустой в Config.plist")
-        }
-        
+
         guard let apiBaseURLString = config["APIBaseURL"] as? String,
               let apiBaseURL = URL(string: apiBaseURLString) else {
-            fatalError("Неверный API Base URL в Config.plist")
+            throw ConfigurationError.invalidBaseURL
         }
-        
-        self.apiKey = apiKey
+
         self.apiBaseURL = apiBaseURL
-        
-        self.cacheTTL = config["CacheTTL"] as? TimeInterval ?? 3600
-        self.networkTimeout = config["NetworkTimeout"] as? TimeInterval ?? 20
-        
+
+        self.cacheTTL = config["CacheTTL"] as? TimeInterval 
+            ?? ConfigurationDefaults.cacheTTL
+        self.networkTimeout = config["NetworkTimeout"] as? TimeInterval 
+            ?? ConfigurationDefaults.networkTimeout
+
         self.keychainService = config["KeychainService"] as? String
-        ?? "com.yourapp.currencyconverter"
+        ?? ConfigurationDefaults.keychainService
         self.keychainAccount = config["KeychainAccount"] as? String
-        ?? "CurrencyAPIKey"
+        ?? ConfigurationDefaults.keychainAccount
+
+        // Загружаем API ключ через новый фасад
+        let storage = APIKeyStorage(service: keychainService, account: keychainAccount)
+        guard let apiKey = APIKeyLoader.loadAndStore(from: config, storage: storage) else {
+            throw ConfigurationError.invalidAPIKey
+        }
+
+        self.apiKey = apiKey
     }
-    
+
     // Инициализатор для тестирования
     init(apiKey: String,
          apiBaseURL: URL,
-         cacheTTL: TimeInterval = 3600,
-         networkTimeout: TimeInterval = 20,
-         keychainService: String = "com.test.currencyconverter",
-         keychainAccount: String = "CurrencyAPIKey") {
+         cacheTTL: TimeInterval = ConfigurationDefaults.cacheTTL,
+         networkTimeout: TimeInterval = ConfigurationDefaults.networkTimeout,
+         keychainService: String = ConfigurationDefaults.keychainService,
+         keychainAccount: String = ConfigurationDefaults.keychainAccount) throws {
+
+        guard !apiKey.isEmpty else {
+            throw ConfigurationError.invalidAPIKey
+        }
+
         self.apiKey = apiKey
         self.apiBaseURL = apiBaseURL
         self.cacheTTL = cacheTTL

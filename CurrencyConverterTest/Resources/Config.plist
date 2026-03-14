@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>CurrencyAPIKey</key>
-	<string>fca_live_MfAAk9vwpMTfWRENTzieUD9HvUPvUy9e9Z0QTNP0</string>
+	<string>YOUR_API_KEY</string>
 	<key>APIBaseURL</key>
 	<string>https://api.currencyapi.com</string>
 	<key>CacheTTL</key>

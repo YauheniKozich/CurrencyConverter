@@ -11,9 +11,9 @@ import SwiftData
 
 /// Вспомогательные функции для тестирования
 enum TestHelpers {
-    static func makeTestConfiguration() -> AppConfiguration {
+    static func makeTestConfiguration() throws -> AppConfiguration {
         let testURL = URL(string: "https://api.test.com")!
-        return AppConfiguration(
+        return try AppConfiguration(
             apiKey: "test_api_key",
             apiBaseURL: testURL,
             cacheTTL: 300,
@@ -29,13 +29,6 @@ enum TestHelpers {
         return try ModelContainer(for: schema, configurations: [configuration])
     }
 
-    @MainActor static func makeTestDependencyContainer() throws -> DependencyContainer {
-        let config = makeTestConfiguration()
-        let container = try makeInMemoryModelContainer()
-        let context = ModelContext(container)
-        return DependencyContainer(configuration: config, modelContainer: container, modelContext: context)
-    }
-
     static func makeMockURLProtocolHandler(statusCode: Int = 200,
                                            jsonString: String,
                                            url: String) -> ((URLRequest) throws -> (HTTPURLResponse, Data)) {
@@ -49,24 +42,7 @@ enum TestHelpers {
 
 // MARK: - Mock Implementations
 
-class MockUserDefaults: UserDefaultsProtocol {
-    private var storage: [String: Any] = [:]
-
-    // Public access to storage for testing purposes
-    var testStorage: [String: Any] {
-        return storage
-    }
-
-    func string(forKey defaultName: String) -> String? {
-        return storage[defaultName] as? String
-    }
-
-    func set(_ value: Any?, forKey defaultName: String) {
-        storage[defaultName] = value
-    }
-}
-
-class MockKeychainHelper: KeychainManaging {
+class MockKeychainHelper {
     var storedValues: [String: String] = [:]
 
     func saveString(_ string: String, service: String, account: String) {
@@ -79,9 +55,5 @@ class MockKeychainHelper: KeychainManaging {
 
     func delete(service: String, account: String) {
         storedValues.removeValue(forKey: "\(service)_\(account)")
-    }
-
-    func initializeAPIKeyIfNeeded(service: String, account: String) {
-        // Mock implementation - do nothing
     }
 }
