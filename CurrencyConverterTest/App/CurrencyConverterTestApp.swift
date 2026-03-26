@@ -14,6 +14,7 @@ struct CurrencyConverterApp: App {
     @State private var viewModel: ConverterViewModel?
     @State private var initError: Error?
     @State private var modelContainer: ModelContainer?
+    @State private var dependencies: AppDependencies?
 
     var body: some Scene {
         WindowGroup {
@@ -86,11 +87,13 @@ struct CurrencyConverterApp: App {
                 let vm = try await deps.createConverterScreen()
 
                 viewModel = vm
+                dependencies = deps
                 initError = nil
                 modelContainer = deps.database
             } catch {
                 initError = error
                 viewModel = nil
+                dependencies = nil
                 modelContainer = nil
                 Logger.log("Ошибка инициализации: \(error)", level: .error)
             }

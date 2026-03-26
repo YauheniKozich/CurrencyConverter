@@ -110,104 +110,104 @@ final class CurrencyCacheManagerTests: XCTestCase {
         _ = try await cacheManager.getCurrencies {
             return expectedCurrencies
         }
-        
+
         // Act - invalidate
-        cacheManager.invalidateCurrenciesCache()
-        
+        await cacheManager.invalidateCurrenciesCache()
+
         // Load again - should call load block
         var loadCalled = false
         _ = try await cacheManager.getCurrencies {
             loadCalled = true
             return expectedCurrencies
         }
-        
+
         // Assert
         XCTAssertTrue(loadCalled, "Should call load block after invalidation")
     }
-    
+
     // MARK: - Exchange Rate Cache Tests
-    
-    func testGetCachedRate_returnsValidRate() throws {
+
+    func testGetCachedRate_returnsValidRate() async throws {
         // Arrange
         let expectedRate = 0.85
         mockDataSource.cachedRate = CachedRate(rate: expectedRate, timestamp: Date())
-        
+
         // Act
-        let result = try cacheManager.getCachedRate(from: "USD", to: "EUR")
-        
+        let result = try await cacheManager.getCachedRate(from: "USD", to: "EUR")
+
         // Assert
         XCTAssertNotNil(result)
         XCTAssertEqual(result!, expectedRate, accuracy: 0.0001)
     }
-    
-    func testGetCachedRate_returnsNilWhenExpired() throws {
+
+    func testGetCachedRate_returnsNilWhenExpired() async throws {
         // Arrange
         let expiredTimestamp = Date().addingTimeInterval(-2)  // 2 seconds ago
         mockDataSource.cachedRate = CachedRate(rate: 0.85, timestamp: expiredTimestamp)
-        
+
         // Act
-        let result = try cacheManager.getCachedRate(from: "USD", to: "EUR")
+        let result = try await cacheManager.getCachedRate(from: "USD", to: "EUR")
         
         // Assert
         XCTAssertNil(result, "Should return nil for expired cache")
     }
     
-    func testGetCachedRate_returnsNilWhenNotFound() throws {
+    func testGetCachedRate_returnsNilWhenNotFound() async throws {
         // Arrange
         mockDataSource.cachedRate = nil
-        
+
         // Act
-        let result = try cacheManager.getCachedRate(from: "USD", to: "EUR")
-        
+        let result = try await cacheManager.getCachedRate(from: "USD", to: "EUR")
+
         // Assert
         XCTAssertNil(result, "Should return nil when cache not found")
     }
-    
-    func testGetStaleCachedRate_returnsExpiredRate() throws {
+
+    func testGetStaleCachedRate_returnsExpiredRate() async throws {
         // Arrange
         let expiredRate = 0.80
         let expiredTimestamp = Date().addingTimeInterval(-2)  // 2 seconds ago
         mockDataSource.cachedRate = CachedRate(rate: expiredRate, timestamp: expiredTimestamp)
-        
+
         // Act
-        let result = try cacheManager.getStaleCachedRate(from: "USD", to: "EUR")
-        
+        let result = try await cacheManager.getStaleCachedRate(from: "USD", to: "EUR")
+
         // Assert
         XCTAssertNotNil(result)
         XCTAssertEqual(result!, expiredRate, accuracy: 0.0001, "Should return stale rate")
     }
-    
-    func testGetStaleCachedRate_returnsNilWhenNotFound() throws {
+
+    func testGetStaleCachedRate_returnsNilWhenNotFound() async throws {
         // Arrange
         mockDataSource.cachedRate = nil
-        
+
         // Act
-        let result = try cacheManager.getStaleCachedRate(from: "USD", to: "EUR")
-        
+        let result = try await cacheManager.getStaleCachedRate(from: "USD", to: "EUR")
+
         // Assert
         XCTAssertNil(result, "Should return nil when no cache found")
     }
     
-    func testSaveRate_savesToDataSource() {
+    func testSaveRate_savesToDataSource() async {
         // Arrange
         let rate = 0.90
-        
+
         // Act
-        cacheManager.saveRate(from: "USD", to: "EUR", rate: rate)
-        
+        await cacheManager.saveRate(from: "USD", to: "EUR", rate: rate)
+
         // Assert
         XCTAssertNotNil(mockDataSource.savedRate)
         XCTAssertEqual(mockDataSource.savedRate!.rate, rate, accuracy: 0.0001)
         XCTAssertEqual(mockDataSource.savedRate!.from, "USD")
         XCTAssertEqual(mockDataSource.savedRate!.to, "EUR")
     }
-    
-    func testSaveRate_handlesSaveFailure() {
+
+    func testSaveRate_handlesSaveFailure() async {
         // Arrange
         mockDataSource.shouldFailOnSave = true
-        
+
         // Act & Assert - should not crash
-        cacheManager.saveRate(from: "USD", to: "EUR", rate: 0.90)
+        await cacheManager.saveRate(from: "USD", to: "EUR", rate: 0.90)
     }
 }
 

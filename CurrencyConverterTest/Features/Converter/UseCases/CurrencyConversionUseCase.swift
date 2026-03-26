@@ -7,11 +7,11 @@
 
 import Foundation
 
-final class CurrencyConversionUseCase {
+final class CurrencyConversionUseCase: CurrencyConversionUseCaseProtocol {
 
-    private let repository: CurrencyRepository
+    private let repository: any CurrencyRepository
 
-    init(repository: CurrencyRepository) {
+    init(repository: any CurrencyRepository) {
         self.repository = repository
     }
 

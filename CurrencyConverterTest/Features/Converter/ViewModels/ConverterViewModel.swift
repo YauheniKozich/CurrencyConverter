@@ -7,98 +7,115 @@
 
 import SwiftUI
 
+@Observable
 @MainActor
-final class ConverterViewModel: ObservableObject {
+final class ConverterViewModel {
 
-    // MARK: - Published Properties
+    private enum AmountNormalization {
+        static let allowedCharacters = CharacterSet(charactersIn: "0123456789.")
+        static let decimalSeparator = "."
+        static let maxDecimalSeparators = 1
+    }
 
-    @Published var fromCurrency = "USD" {
+    var fromCurrency: String {
         didSet {
             guard fromCurrency != oldValue else { return }
-            UserDefaults.standard.set(fromCurrency, forKey: "fromCurrency")
+            preferences.fromCurrency = fromCurrency
         }
     }
 
-    @Published var toCurrency = "RUB" {
+    var toCurrency: String {
         didSet {
             guard toCurrency != oldValue else { return }
-            UserDefaults.standard.set(toCurrency, forKey: "toCurrency")
+            preferences.toCurrency = toCurrency
         }
     }
 
-    @Published private(set) var amount: String = ""
-    @Published var result = ""
-    @Published var rate = ""
-    @Published var errorMessage: String?
-    @Published var isConverting = false
+    private(set) var amount: String = ""
+    private(set) var result: String = ""
+    private(set) var rate: String = ""
+    private(set) var errorMessage: String?
+    private(set) var isConverting: Bool = false
 
-    @Published var currencies: [String] = []
-    @Published var isLoadingCurrencies = false
-    @Published var currenciesLoadingError: String?
+    private(set) var currencies: [String] = []
+    private(set) var isLoadingCurrencies: Bool = false
+    private(set) var currenciesLoadingError: String?
 
-    // MARK: - Dependencies
+    var showErrorAlert: Bool {
+        guard let error = errorMessage else { return false }
+        return ErrorType.from(error).isNonRecoverable
+    }
 
-    private let conversionUseCase: CurrencyConversionUseCase
-    private let loadCurrenciesUseCase: LoadCurrenciesUseCase
-    private let saveConversionHistoryUseCase: SaveConversionHistoryUseCase
-    private let numberFormatter: NumberFormatting
+    var hasValidationError: Bool {
+        errorMessage == "Неверный формат суммы"
+    }
 
-    // MARK: - Private Properties
+    var formattedResult: String {
+        "\(amount) \(fromCurrency) = \(result) \(toCurrency)"
+    }
+
+    private let conversionService: ConversionService
+    private let conversionFormatting: any ConversionFormatting
+    private let loadCurrenciesUseCase: any LoadCurrenciesUseCaseProtocol
+    private let preferences: UserPreferences
 
     private var convertTask: Task<Void, Never>?
     private var loadCurrenciesTask: Task<Void, Never>?
 
-    // MARK: - Initialization
-
     init(
-        conversionUseCase: CurrencyConversionUseCase,
-        loadCurrenciesUseCase: LoadCurrenciesUseCase,
-        saveConversionHistoryUseCase: SaveConversionHistoryUseCase,
-        numberFormatter: NumberFormatting
+        conversionUseCase: any CurrencyConversionUseCaseProtocol,
+        loadCurrenciesUseCase: any LoadCurrenciesUseCaseProtocol,
+        saveConversionHistoryUseCase: any SaveConversionHistoryUseCaseProtocol,
+        numberFormatter: any NumberFormatting,
+        preferences: UserPreferences = UserPreferences()
     ) {
-        self.conversionUseCase = conversionUseCase
+        let preferences = preferences
+        self.conversionService = ConversionService(
+            conversionUseCase: conversionUseCase,
+            saveConversionHistoryUseCase: saveConversionHistoryUseCase,
+            numberFormatter: numberFormatter
+        )
+        self.conversionFormatting = ConversionPresentationFormatter(numberFormatter: numberFormatter)
         self.loadCurrenciesUseCase = loadCurrenciesUseCase
-        self.saveConversionHistoryUseCase = saveConversionHistoryUseCase
-        self.numberFormatter = numberFormatter
-
-        // Восстанавливаем сохраненные значения
-        if let savedFromCurrency = UserDefaults.standard.string(forKey: "fromCurrency") {
-            fromCurrency = savedFromCurrency
-        }
-
-        if let savedToCurrency = UserDefaults.standard.string(forKey: "toCurrency") {
-            toCurrency = savedToCurrency
-        }
+        self.preferences = preferences
+        self.fromCurrency = preferences.fromCurrency
+        self.toCurrency = preferences.toCurrency
     }
-
-    // MARK: - Public Methods
 
     func setAmount(_ newAmount: String) {
         amount = normalizeAmount(newAmount)
+        errorMessage = nil
+    }
+
+    func clearError() {
+        errorMessage = nil
     }
 
     func convert() {
         convertTask?.cancel()
         convertTask = Task { [weak self] in
-            await self?.performConversion()
+            guard let self = self else { return }
+            await self.performConversion()
         }
     }
 
     func loadCurrencies() {
         loadCurrenciesTask?.cancel()
         loadCurrenciesTask = Task { [weak self] in
-            await self?.loadSupportedCurrencies(forceRefresh: false)
+            guard let self = self else { return }
+            await self.loadSupportedCurrencies(forceRefresh: false)
         }
     }
 
-    func refreshCurrencies() {
+    func refreshCurrencies() async {
         loadCurrenciesTask?.cancel()
         loadCurrenciesTask = Task { [weak self] in
-            await self?.loadSupportedCurrencies(forceRefresh: true)
+            guard let self = self else { return }
+            await self.loadSupportedCurrencies(forceRefresh: true)
         }
-    }
 
-    // MARK: - Private Methods
+        await loadCurrenciesTask?.value
+    }
 
     private func performConversion() async {
         isConverting = true
@@ -106,64 +123,38 @@ final class ConverterViewModel: ObservableObject {
 
         guard !Task.isCancelled else { return }
 
-        guard let amountValue = numberFormatter.parse(amount) else {
-            errorMessage = "Неверный формат суммы"
-            return
-        }
-
-        errorMessage = nil
-        result = ""
-        rate = ""
-
         do {
-            let conversion = try await conversionUseCase.execute(
+            let conversion = try await conversionService.convert(
                 from: fromCurrency,
                 to: toCurrency,
-                amount: amountValue
+                amount: amount
             )
 
             guard !Task.isCancelled else { return }
 
-            result = numberFormatter.format(
-                conversion.result,
-                decimals: 2
-            )
+            result = conversionFormatting.formatResult(conversion.result)
+            rate = conversionFormatting.formatRate(conversion.rate)
+            errorMessage = nil
 
-            rate = numberFormatter.format(
-                conversion.rate,
-                decimals: 4
-            )
-
-            // Сохраняем в историю через UseCase
-            do {
-                try await saveConversionHistoryUseCase.execute(
-                    from: fromCurrency,
-                    to: toCurrency,
-                    amount: amountValue,
-                    result: conversion.result,
-                    rate: conversion.rate
-                )
-            } catch {
-                Logger.log("Не удалось сохранить историю конвертации: \(error)", level: .warning)
-            }
+        } catch let conversionError as ConversionService.ConversionError {
+            guard !Task.isCancelled else { return }
+            errorMessage = conversionError.errorDescription
+            result = ""
+            rate = ""
 
         } catch let appError as AppError {
             guard !Task.isCancelled else { return }
-            
-            // Показываем user-friendly сообщение
             errorMessage = appError.errorDescription
-            
-            // Логируем технические детали
+
             if let reason = appError.failureReason {
                 Logger.log("Conversion error: \(reason)", level: .error)
             }
-            
+
             result = ""
             rate = ""
+
         } catch {
             guard !Task.isCancelled else { return }
-            
-            // Fallback для неизвестных ошибок
             errorMessage = "Произошла ошибка. Попробуйте снова."
             Logger.log("Unknown conversion error: \(error)", level: .error)
             result = ""
@@ -173,7 +164,6 @@ final class ConverterViewModel: ObservableObject {
 
     private func loadSupportedCurrencies(forceRefresh: Bool) async {
         isLoadingCurrencies = true
-        
         currenciesLoadingError = nil
         defer { isLoadingCurrencies = false }
 
@@ -184,31 +174,33 @@ final class ConverterViewModel: ObservableObject {
         } catch let appError as AppError {
             guard !Task.isCancelled else { return }
 
-            // Показываем user-friendly сообщение
             currenciesLoadingError = appError.errorDescription
 
-            // Логируем технические детали
             if let reason = appError.failureReason {
                 Logger.log("Load currencies error: \(reason)", level: .error)
             }
         } catch {
             guard !Task.isCancelled else { return }
 
-            // Fallback для неизвестных ошибок
             currenciesLoadingError = "Не удалось загрузить валюты"
             Logger.log("Unknown load currencies error: \(error)", level: .error)
         }
     }
 
-    // MARK: - Input Normalization
-
     private func normalizeAmount(_ input: String) -> String {
-        var filtered = input
+        let normalized = input
             .replacingOccurrences(of: ",", with: ".")
-            .filter { "0123456789.".contains($0) }
-        let components = filtered.split(separator: ".")
-        if components.count > 2 {
-            filtered = components.prefix(2).joined(separator: ".")
+        var filtered = String(
+            String.UnicodeScalarView(
+                normalized.unicodeScalars.filter { Self.AmountNormalization.allowedCharacters.contains($0) }
+            )
+        )
+
+        let components = filtered.split(separator: Character(Self.AmountNormalization.decimalSeparator))
+        if components.count > Self.AmountNormalization.maxDecimalSeparators + 1 {
+            filtered = components.prefix(Self.AmountNormalization.maxDecimalSeparators + 1).joined(
+                separator: Self.AmountNormalization.decimalSeparator
+            )
         }
         return filtered
     }

@@ -6,12 +6,18 @@
 //
 
 import Foundation
+import SwiftData
 
-final class SaveConversionHistoryUseCase {
+protocol ConversionHistoryActorType: Sendable {
+    func saveConversion(from: String, to: String, amount: Double, result: Double, rate: Double) async throws
+    func deleteConversion(id: UUID) async throws
+}
 
-    private let historyActor: ConversionHistoryActorProtocol
+actor SaveConversionHistoryUseCase: SaveConversionHistoryUseCaseProtocol {
 
-    init(historyActor: ConversionHistoryActorProtocol) {
+    private let historyActor: any ConversionHistoryActorType
+
+    init(historyActor: any ConversionHistoryActorType) {
         self.historyActor = historyActor
     }
 

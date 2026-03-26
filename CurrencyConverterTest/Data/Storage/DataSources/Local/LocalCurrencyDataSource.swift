@@ -8,7 +8,7 @@
 import Foundation
 
 /// Протокол для локального источника данных валют
-protocol LocalCurrencyDataSource {
+protocol LocalCurrencyDataSource: Sendable {
     func loadCachedRate(from: String, to: String) throws -> CachedRate?
     func saveRate(from: String, to: String, rate: Double) throws
 }

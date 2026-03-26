@@ -43,6 +43,7 @@ class MockURLProtocol: URLProtocol {
 
 // MARK: - Tests
 
+@MainActor
 final class CurrencyAPIRepositoryTests: XCTestCase {
     var context: ModelContext!
     var repository: CurrencyAPIRepository!
@@ -82,15 +83,6 @@ final class CurrencyAPIRepositoryTests: XCTestCase {
     }
 
     func testConvertSuccess() async throws {
-        let jsonString = """
-        {
-            "meta": { "last_updated_at": "2025-05-20T12:00:00Z" },
-            "data": {
-                "EUR": { "code": "EUR", "value": 0.9 }
-            }
-        }
-        """
-        let data = jsonString.data(using: .utf8)!
         let endpoint = CurrencyAPIEndpoint.convert(
             from: "USD",
             to: "EUR",
@@ -99,10 +91,9 @@ final class CurrencyAPIRepositoryTests: XCTestCase {
         )
         let url = try endpoint.makeURLRequest().url!.absoluteString
 
-        MockURLProtocol.handlers[url] = { request in
-            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
-            return (response, data)
-        }
+        MockURLProtocol.handlers[url] = TestHelpers.makeMockURLProtocolHandler(
+            jsonString: TestHelpers.currencyConversionJSON
+        )
 
         let result = try await repository.convert(from: "USD", to: "EUR", amount: 10)
         XCTAssertEqual(result.rate, 0.9)
@@ -115,25 +106,15 @@ final class CurrencyAPIRepositoryTests: XCTestCase {
     }
 
     func testFetchSupportedCurrenciesSuccess() async throws {
-        let jsonString = """
-        {
-            "data": {
-                "USD": { "name": "US Dollar", "code": "USD" },
-                "EUR": { "name": "Euro", "code": "EUR" }
-            }
-        }
-        """
-        let data = jsonString.data(using: .utf8)!
         let endpoint = CurrencyAPIEndpoint.currencies(
             apiKey: testConfig.apiKey,
             baseURL: testConfig.apiBaseURL
         )
         let url = try endpoint.makeURLRequest().url!.absoluteString
 
-        MockURLProtocol.handlers[url] = { request in
-            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
-            return (response, data)
-        }
+        MockURLProtocol.handlers[url] = TestHelpers.makeMockURLProtocolHandler(
+            jsonString: TestHelpers.supportedCurrenciesJSON
+        )
 
         let currencies = try await repository.fetchSupportedCurrencies()
         XCTAssertEqual(currencies["USD"]?.name, "US Dollar")
@@ -141,22 +122,15 @@ final class CurrencyAPIRepositoryTests: XCTestCase {
     }
 
     func testFetchSupportedCurrenciesEmpty() async throws {
-        let jsonString = """
-        {
-            "data": {}
-        }
-        """
-        let data = jsonString.data(using: .utf8)!
         let endpoint = CurrencyAPIEndpoint.currencies(
             apiKey: testConfig.apiKey,
             baseURL: testConfig.apiBaseURL
         )
         let url = try endpoint.makeURLRequest().url!.absoluteString
 
-        MockURLProtocol.handlers[url] = { request in
-            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
-            return (response, data)
-        }
+        MockURLProtocol.handlers[url] = TestHelpers.makeMockURLProtocolHandler(
+            jsonString: TestHelpers.emptyCurrenciesJSON
+        )
 
         let currencies = try await repository.fetchSupportedCurrencies()
         XCTAssertTrue(currencies.isEmpty, "Expected empty currencies list")

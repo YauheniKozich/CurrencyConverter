@@ -14,25 +14,9 @@ protocol NumberFormatting {
 
 final class NumberFormatterService: NumberFormatting {
 
-    // MARK: - Shared Instance
-
-    static let shared = NumberFormatterService()
-
-    // MARK: - Private Properties
-
     private let formatter: NumberFormatter
 
-    // MARK: - Initialization
-
-    private init() {
-        formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.locale = .current
-        formatter.usesGroupingSeparator = false
-    }
-
-    // For testing only
-    init(locale: Locale) {
+    init(locale: Locale = .current) {
         formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         formatter.locale = locale

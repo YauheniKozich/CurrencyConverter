@@ -13,7 +13,7 @@ struct CachedRate: Sendable {
     let timestamp: Date
 }
 
-final class CurrencyLocalDataSource {
+final class CurrencyLocalDataSource: @unchecked Sendable {
 
     private let context: ModelContext
 

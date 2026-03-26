@@ -8,127 +8,202 @@
 import SwiftUI
 
 struct ConverterView: View {
-    @ObservedObject var viewModel: ConverterViewModel
-    @State private var showErrorAlert = false
+    private enum UI {
+        static let textFieldCornerRadius: CGFloat = 8
+        static let textFieldBorderWidth: CGFloat = 2
+        static let debounceNanoseconds: UInt64 = 300_000_000
+    }
+
+    @Bindable var viewModel: ConverterViewModel
+    @State private var amountInput: String = ""
+    @State private var debounceTask: Task<Void, Never>?
 
     var body: some View {
         NavigationStack {
             Form {
-                Section(header: Text("Выбор валют")) {
-                    Picker("Из", selection: $viewModel.fromCurrency) {
-                        ForEach(viewModel.currencies, id: \.self) { Text($0) }
-                    }
-                    Picker("В", selection: $viewModel.toCurrency) {
-                        ForEach(viewModel.currencies, id: \.self) { Text($0) }
-                    }
-                }
-                .disabled(viewModel.currencies.isEmpty)
-
-                Section(header: Text("Сумма")) {
-                    TextField("Введите сумму", text: .init(
-                        get: { viewModel.amount },
-                        set: { viewModel.setAmount($0) }
-                    ))
-                    .keyboardType(.decimalPad)
-                    .submitLabel(.done)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 4)
-                            .stroke(viewModel.errorMessage == "Неверный формат суммы" ? Color.red : Color.clear, lineWidth: 1)
-                    )
-                }
-
-                if let error = viewModel.currenciesLoadingError {
-                    Section {
-                        Label(error, systemImage: "exclamationmark.triangle.fill")
-                            .foregroundColor(.red)
-                    }
-                }
-
-                Button("Конвертировать") {
-                    viewModel.convert()
-                }
-                .disabled(viewModel.amount.isEmpty || viewModel.currencies.isEmpty)
-
-                if !viewModel.result.isEmpty {
-                    Section(header: Text("Результат")) {
-                        Text("\(viewModel.amount) \(viewModel.fromCurrency) = \(viewModel.result) \(viewModel.toCurrency)")
-                        Text("Курс: \(viewModel.rate)")
-                    }
-                }
-
-                if let error = viewModel.errorMessage {
-                    Section {
-                        Label(error, systemImage: "exclamationmark.circle.fill")
-                            .foregroundStyle(.red)
-                    }
-                }
-
-                NavigationLink("История") {
-                    HistoryView()
-                }
+                currencySelectionSection
+                currencySelectionFeedbackSection
+                currenciesErrorSection
+                amountSection
+                convertButtonSection
+                resultSection
+                errorSection
+                navigationLinks
             }
             .navigationTitle("Конвертер валют")
             .refreshable {
-                await refreshCurrencies()
+                await viewModel.refreshCurrencies()
             }
-            .overlay {
-                if viewModel.isLoadingCurrencies {
-                    loadingOverlay(title: "Загрузка валют…")
-                } else if viewModel.isConverting {
-                    loadingOverlay(title: "Конвертация…")
+            .overlay { loadingOverlay }
+            .alert("Ошибка", isPresented: Binding(
+                get: { viewModel.showErrorAlert },
+                set: { isPresented in
+                    if !isPresented {
+                        viewModel.clearError()
+                    }
                 }
-            }
-            .onChange(of: viewModel.errorMessage) { _, newValue in
-                // Показываем alert только для non-recoverable ошибок
-                if let error = newValue, !error.isEmpty {
-                    showErrorAlert = isNonRecoverableError(error)
-                }
-            }
-            .alert("Ошибка", isPresented: $showErrorAlert) {
+            )) {
                 Button("OK", role: .cancel) {
-                    viewModel.errorMessage = nil
+                    viewModel.clearError()
                 }
             } message: {
                 Text(viewModel.errorMessage ?? "")
             }
-            .onAppear {
-                Task {
-                    await refreshCurrencies()
+            .task {
+                viewModel.loadCurrencies()
+            }
+        }
+    }
+
+    // MARK: - Form Sections
+
+    @ViewBuilder
+    private var currencySelectionSection: some View {
+        Section(header: Text("Выбор валют")) {
+            Picker("Из", selection: $viewModel.fromCurrency) {
+                ForEach(viewModel.currencies, id: \.self) { currency in
+                    Text(currency).tag(currency)
+                }
+            }
+            .accessibilityLabel("Валюта конвертации")
+            .disabled(viewModel.currencies.isEmpty)
+
+            Picker("В", selection: $viewModel.toCurrency) {
+                ForEach(viewModel.currencies, id: \.self) { currency in
+                    Text(currency).tag(currency)
+                }
+            }
+            .accessibilityLabel("Целевая валюта")
+            .disabled(viewModel.currencies.isEmpty)
+        }
+    }
+
+    @ViewBuilder
+    private var currencySelectionFeedbackSection: some View {
+        if viewModel.currencies.isEmpty && !viewModel.isLoadingCurrencies {
+            Section {
+                if let error = viewModel.currenciesLoadingError {
+                    ScreenFeedbackView(
+                        title: "Не удалось загрузить валюты",
+                        systemImage: "exclamationmark.triangle.fill",
+                        description: error,
+                        actionTitle: "Попробовать снова"
+                    ) {
+                        viewModel.loadCurrencies()
+                    }
+                } else {
+                    ScreenFeedbackView(
+                        title: "Нет доступных валют",
+                        systemImage: "globe",
+                        description: "Попробуйте обновить список",
+                        actionTitle: "Обновить"
+                    ) {
+                        viewModel.loadCurrencies()
+                    }
                 }
             }
         }
     }
 
     @ViewBuilder
-    private func loadingOverlay(title: String) -> some View {
-        ZStack {
-            Color(.systemBackground)
-                .opacity(0.8)
-            VStack {
-                ProgressView()
-                    .scaleEffect(1.5)
-                Text(title)
-                    .font(.body)
-                    .foregroundColor(.primary)
-                    .padding(.top, 16)
+    private var currenciesErrorSection: some View {
+        if let error = viewModel.currenciesLoadingError, !viewModel.currencies.isEmpty {
+            Section {
+                ScreenFeedbackView(
+                    title: "Не удалось обновить список валют",
+                    systemImage: "exclamationmark.triangle.fill",
+                    description: error,
+                    actionTitle: "Попробовать снова"
+                ) {
+                    viewModel.loadCurrencies()
+                }
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func refreshCurrencies() async {
-        viewModel.loadCurrencies()
-        try? await Task.sleep(nanoseconds: 500_000_000)  // 0.5s для визуального эффекта refresh
+    @ViewBuilder
+    private var amountSection: some View {
+        Section(header: Text("Сумма")) {
+            TextField("Введите сумму", text: $amountInput)
+                .keyboardType(.decimalPad)
+                .submitLabel(.done)
+                .accessibilityLabel("Сумма для конвертации")
+                .accessibilityHint("Введите числовое значение")
+                .overlay(
+                    RoundedRectangle(cornerRadius: UI.textFieldCornerRadius)
+                        .stroke(viewModel.hasValidationError ? Color.red : Color.clear, lineWidth: UI.textFieldBorderWidth)
+                )
+                .onChange(of: amountInput) { oldValue, newValue in
+                    debounceTask?.cancel()
+                    debounceTask = Task {
+                        try? await Task.sleep(nanoseconds: UI.debounceNanoseconds)
+                        guard !Task.isCancelled else { return }
+                        viewModel.setAmount(newValue)
+                    }
+                }
+                .onAppear {
+                    amountInput = viewModel.amount
+                }
+        }
     }
 
-    private func isNonRecoverableError(_ error: String) -> Bool {
-        // Non-recoverable ошибки: валидация, конфигурация
-        let nonRecoverableKeywords = [
-            "Неверный формат",
-            "Некорректная",
-            "Не указаны",
-            "Конфигурация"
-        ]
-        return nonRecoverableKeywords.contains { error.contains($0) }
+    @ViewBuilder
+    private var convertButtonSection: some View {
+        Section {
+            Button("Конвертировать") {
+                viewModel.convert()
+            }
+            .accessibilityLabel("Конвертировать валюту")
+            .accessibilityHint("Нажмите для выполнения конвертации")
+            .disabled(viewModel.amount.isEmpty || viewModel.currencies.isEmpty)
+        }
+    }
+
+    @ViewBuilder
+    private var resultSection: some View {
+        if !viewModel.result.isEmpty {
+            Section(header: Text("Результат")) {
+                Text(viewModel.formattedResult)
+                    .accessibilityLabel("Результат: \(viewModel.formattedResult)")
+                Text("Курс: \(viewModel.rate)")
+                    .accessibilityLabel("Курс обмена: \(viewModel.rate)")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var errorSection: some View {
+        if let error = viewModel.errorMessage, !viewModel.hasValidationError {
+            Section {
+                ScreenFeedbackView(
+                    title: "Не удалось выполнить конвертацию",
+                    systemImage: "exclamationmark.circle.fill",
+                    description: error,
+                    actionTitle: "Попробовать снова",
+                    isProminentAction: false
+                ) {
+                    viewModel.convert()
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var navigationLinks: some View {
+        NavigationLink("История") {
+            HistoryView()
+        }
+        .accessibilityLabel("Перейти к истории конвертаций")
+    }
+
+    // MARK: - Overlays
+
+    @ViewBuilder
+    private var loadingOverlay: some View {
+        if viewModel.isLoadingCurrencies {
+            ScreenLoadingOverlayView(title: "Загрузка валют…")
+        } else if viewModel.isConverting {
+            ScreenLoadingOverlayView(title: "Конвертация…")
+        }
     }
 }

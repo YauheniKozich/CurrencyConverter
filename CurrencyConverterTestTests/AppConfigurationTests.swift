@@ -8,8 +8,9 @@
 import XCTest
 @testable import CurrencyConverterTest
 
+@MainActor
 final class AppConfigurationTests: XCTestCase {
-    
+
     func testAppConfigurationInitialization_withTestValues() throws {
         let testURL = URL(string: "https://test.api.com")!
         let config = try AppConfiguration(

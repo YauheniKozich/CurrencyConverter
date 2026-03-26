@@ -10,13 +10,12 @@ import SwiftData
 
 // MARK: - Dependencies
 
-// Контейнер для управления зависимостями в приложении
 protocol Dependencies {
     var config: AppConfiguration { get }
     var database: ModelContainer { get }
 
-    func createRepository() throws -> CurrencyRepository
-    @MainActor func createConverterScreen() async throws -> ConverterViewModel
+    func createRepository() throws -> any CurrencyRepository
+    func createConverterScreen() async throws -> ConverterViewModel
     func networking() -> NetworkService
 }
 
@@ -50,12 +49,12 @@ final class AppDependencies: Dependencies {
 
     // MARK: - Create Dependency
 
-    func createRepository() throws -> CurrencyRepository {
+    func createRepository() throws -> any CurrencyRepository {
         if let existing = repository {
             return existing
         }
 
-        let localStorage: LocalCurrencyDataSource = CurrencyLocalDataSource(modelContainer: database)
+        let localStorage: any LocalCurrencyDataSource = CurrencyLocalDataSource(modelContainer: database)
         let networking = networking()
 
         let repo = try CurrencyAPIRepository(
@@ -78,12 +77,15 @@ final class AppDependencies: Dependencies {
         let conversionUseCase = CurrencyConversionUseCase(repository: repository)
         let loadCurrenciesUseCase = LoadCurrenciesUseCase(repository: repository)
         let saveConversionHistoryUseCase = SaveConversionHistoryUseCase(historyActor: actor)
+        let numberFormatter = NumberFormatterService(locale: .current)
+        let preferences = UserPreferences(defaults: .standard)
 
         return ConverterViewModel(
             conversionUseCase: conversionUseCase,
             loadCurrenciesUseCase: loadCurrenciesUseCase,
             saveConversionHistoryUseCase: saveConversionHistoryUseCase,
-            numberFormatter: NumberFormatterService.shared
+            numberFormatter: numberFormatter,
+            preferences: preferences
         )
     }
 

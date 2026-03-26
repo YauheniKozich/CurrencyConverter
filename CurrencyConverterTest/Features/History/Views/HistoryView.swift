@@ -6,64 +6,65 @@
 //
 
 import SwiftUI
-import SwiftData
 
 struct HistoryView: View {
-    @Query(sort: \Conversion.date, order: .reverse) private var allConversions: [Conversion]
+    @State private var viewModel: HistoryViewModel?
     @State private var searchText = ""
+    @Environment(\.modelContext) private var modelContext
 
-    var filtered: [Conversion] {
-        if searchText.isEmpty { return allConversions }
-        return allConversions.filter { "\($0.from)/\($0.to)".localizedCaseInsensitiveContains(searchText) }
+    private var hasError: Bool {
+        viewModel?.errorMessage != nil
+    }
+
+    private func ensureViewModel() {
+        guard viewModel == nil else { return }
+        do {
+            viewModel = try HistoryViewModel(modelContainer: modelContext.container)
+        } catch {
+            Logger.log("Failed to create HistoryViewModel: \(error)", level: .error)
+        }
     }
 
     var body: some View {
-        Group {
-            if allConversions.isEmpty {
-                ContentUnavailableView(
-                    "Нет истории",
-                    systemImage: "clock.badge.exclamationmark",
-                    description: Text("Вы ещё не выполнили ни одной конвертации")
-                )
-            } else {
-                List {
-                    ForEach(filtered) { item in
-                        VStack(alignment: .leading) {
-                            Text(String(format: "%.2f %@ → %.2f %@", item.amount, item.from, item.result, item.to))
-                                .font(.body)
-                            Text(String(format: "Курс: %.4f", item.rate))
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            Text("Дата: \(item.date.formatted())")
-                                .font(.caption2)
-                                .foregroundColor(.gray)
-                        }
+        HistoryListView(
+            searchText: searchText,
+            onResetSearch: {
+                searchText = ""
+            },
+            onDelete: { id in
+                await deleteConversion(id: id)
+            }
+        )
+            .navigationTitle("История")
+            .overlay { loadingOverlay }
+            .alert("Ошибка", isPresented: Binding(
+                get: { hasError },
+                set: { isPresented in
+                    if !isPresented {
+                        viewModel?.clearError()
                     }
-                    .onDelete(perform: deleteConversions)
                 }
-                .refreshable {
-                    await refresh()
+            )) {
+                Button("OK") {
+                    viewModel?.clearError()
                 }
+            } message: {
+                Text(viewModel?.errorMessage ?? "")
+            }
+            .searchable(text: $searchText, prompt: "Поиск по валютам")
+            .onAppear(perform: ensureViewModel)
+    }
+
+    private var loadingOverlay: some View {
+        Group {
+            if let vm = viewModel, vm.isDeleting {
+                ScreenLoadingOverlayView(title: "Удаление...")
             }
         }
-        .searchable(text: $searchText)
-        .navigationTitle("История")
     }
 
-    private func refresh() async {
-        // Небольшая задержка для визуального эффекта refresh
-        try? await Task.sleep(nanoseconds: 500_000_000)
-    }
-
-    private func deleteConversions(at offsets: IndexSet) {
-        let modelContext = allConversions.first?.modelContext
-        guard let modelContext = modelContext else { return }
-
-        for index in offsets {
-            let conversion = filtered[index]
-            modelContext.delete(conversion)
-        }
-
-        try? modelContext.save()
+    @MainActor
+    private func deleteConversion(id: UUID) async {
+        await viewModel?.deleteConversion(id: id)
     }
 }

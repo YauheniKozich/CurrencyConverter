@@ -7,17 +7,17 @@
 
 import Foundation
 
-final class LoadCurrenciesUseCase {
+final class LoadCurrenciesUseCase: LoadCurrenciesUseCaseProtocol {
 
-    private let repository: CurrencyRepository
+    private let repository: any CurrencyRepository
 
-    init(repository: CurrencyRepository) {
+    init(repository: any CurrencyRepository) {
         self.repository = repository
     }
 
     func execute(forceRefresh: Bool = false) async throws -> [String] {
         let currencyMap: [String: Currency]
-        
+
         if forceRefresh {
             currencyMap = try await repository.refreshSupportedCurrencies()
         } else {

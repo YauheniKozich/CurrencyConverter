@@ -9,7 +9,7 @@ import Foundation
 
 // MARK: - CurrencyAPI Repository
 
-final class CurrencyAPIRepository: CurrencyRepository {
+final class CurrencyAPIRepository: CurrencyRepository, @unchecked Sendable {
 
     // MARK: - Properties
 
@@ -43,17 +43,19 @@ final class CurrencyAPIRepository: CurrencyRepository {
     // MARK: - CurrencyRepository Conformance
 
     func fetchSupportedCurrencies() async throws -> [String: Currency] {
-        try await cacheManager.getCurrencies(
-            load: { [weak self] in
-                guard let self = self else { return [:] }
-                
+        let apiKey = self.apiKey
+        let apiBaseURL = self.apiBaseURL
+        let networkService = self.networkService
+
+        return try await cacheManager.getCurrencies(
+            load: {
                 let endpoint = CurrencyAPIEndpoint.currencies(
-                    apiKey: self.apiKey,
-                    baseURL: self.apiBaseURL
+                    apiKey: apiKey,
+                    baseURL: apiBaseURL
                 )
 
-                let data = try await self.networkService.request(endpoint)
-                let decoded: CurrencyResponse = try self.networkService.decode(data)
+                let data = try await networkService.request(endpoint)
+                let decoded: CurrencyResponse = try networkService.decode(data)
 
                 Logger.log("Загружено валют: \(decoded.data.count)", level: .info)
                 return decoded.data
@@ -63,17 +65,19 @@ final class CurrencyAPIRepository: CurrencyRepository {
     }
 
     func refreshSupportedCurrencies() async throws -> [String: Currency] {
-        try await cacheManager.getCurrencies(
-            load: { [weak self] in
-                guard let self = self else { return [:] }
-                
+        let apiKey = self.apiKey
+        let apiBaseURL = self.apiBaseURL
+        let networkService = self.networkService
+
+        return try await cacheManager.getCurrencies(
+            load: {
                 let endpoint = CurrencyAPIEndpoint.currencies(
-                    apiKey: self.apiKey,
-                    baseURL: self.apiBaseURL
+                    apiKey: apiKey,
+                    baseURL: apiBaseURL
                 )
 
-                let data = try await self.networkService.request(endpoint)
-                let decoded: CurrencyResponse = try self.networkService.decode(data)
+                let data = try await networkService.request(endpoint)
+                let decoded: CurrencyResponse = try networkService.decode(data)
 
                 Logger.log("Загружено валют: \(decoded.data.count)", level: .info)
                 return decoded.data
@@ -83,21 +87,18 @@ final class CurrencyAPIRepository: CurrencyRepository {
     }
 
     func convert(from: String, to: String, amount: Double) async throws -> ConversionResult {
-        // Пробуем получить курс из кэша
-        if let cachedRate = try cacheManager.getCachedRate(from: from, to: to) {
+        if let cachedRate = try await cacheManager.getCachedRate(from: from, to: to) {
             return ConversionResult(result: amount * cachedRate, rate: cachedRate)
         }
 
-        // Если кэша нет или он устарел - запрашиваем из сети
         do {
             let result = try await fetchAndCacheConversion(from: from, to: to, amount: amount)
             return result
         } catch let appError as AppError {
             Logger.log("Ошибка конвертации: \(appError.failureReason ?? "")", level: .error)
 
-            // Fallback: пытаемся использовать старый кэш, если ошибка recoverable
             if appError.isRecoverable,
-               let staleRate = try? cacheManager.getStaleCachedRate(from: from, to: to) {
+               let staleRate = try? await cacheManager.getStaleCachedRate(from: from, to: to) {
                 return ConversionResult(result: amount * staleRate, rate: staleRate)
             }
 
@@ -122,7 +123,6 @@ final class CurrencyAPIRepository: CurrencyRepository {
             let data = try await networkService.request(endpoint)
             let decoded: CurrencyAPIResponse = try networkService.decode(data)
 
-            // Извлекаем курс для целевой валюты из словаря
             guard let currencyValue = decoded.data[to] else {
                 throw AppError.dataNotFound
             }
@@ -131,12 +131,10 @@ final class CurrencyAPIRepository: CurrencyRepository {
 
             Logger.log("Получен курс \(from)/\(to): \(rate)", level: .debug)
 
-            // Сохраняем в кэш
-            cacheManager.saveRate(from: from, to: to, rate: rate)
+            await cacheManager.saveRate(from: from, to: to, rate: rate)
 
             return ConversionResult(result: amount * rate, rate: rate)
         } catch let networkError as NetworkError {
-            // Маппим NetworkError на AppError
             throw networkError.appError
         }
     }

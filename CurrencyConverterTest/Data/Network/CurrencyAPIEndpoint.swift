@@ -47,7 +47,6 @@ struct CurrencyAPIEndpoint: Sendable {
         )
     }
 
-    /// Создаёт URLRequest из эндпоинта
     func makeURLRequest() throws -> URLRequest {
         guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
             throw NetworkError.invalidURL

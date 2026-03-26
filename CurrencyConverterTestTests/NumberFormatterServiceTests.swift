@@ -8,6 +8,7 @@
 import XCTest
 @testable import CurrencyConverterTest
 
+@MainActor
 final class NumberFormatterServiceTests: XCTestCase {
     var formatter: NumberFormatterService!
 

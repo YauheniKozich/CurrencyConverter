@@ -167,7 +167,8 @@ final class ConverterViewModelTests: XCTestCase {
 
 // MARK: - Mock Helpers
 
-final class MockConversionHistoryActor: ConversionHistoryActorProtocol {
+@MainActor
+final class MockConversionHistoryActor: ConversionHistoryActorType {
     private var saveConversionCalled = false
     private var savedConversions: [(from: String, to: String, amount: Double, result: Double, rate: Double)] = []
 
@@ -187,7 +188,8 @@ final class MockConversionHistoryActor: ConversionHistoryActorProtocol {
 
 // MARK: - Mock Repository
 
-class MockCurrencyRepository: CurrencyRepository {
+@MainActor
+class MockCurrencyRepository: CurrencyRepository, @unchecked Sendable {
     var convertResult: ConversionResult?
     var convertError: Error?
     var fetchCurrenciesResult: [String: Currency]?
@@ -206,10 +208,15 @@ class MockCurrencyRepository: CurrencyRepository {
         }
         return fetchCurrenciesResult ?? [:]
     }
+
+    func refreshSupportedCurrencies() async throws -> [String: Currency] {
+        return try await fetchSupportedCurrencies()
+    }
 }
 
 // MARK: - Mock Number Formatter
 
+@MainActor
 final class MockNumberFormatter: NumberFormatting {
     var parseResult: Double?
     var formatResults: [String: String] = [:]

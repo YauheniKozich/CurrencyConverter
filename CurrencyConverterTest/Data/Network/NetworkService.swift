@@ -19,31 +19,32 @@ enum NetworkError: Error, Sendable {
 
 // MARK: - Network Service
 
-final class NetworkService {
+final class NetworkService: Sendable {
 
     private let session: URLSession
+    private let timeout: TimeInterval
 
-    init(timeout: TimeInterval = 30.0) {
+    init(timeout: TimeInterval = ConfigurationDefaults.networkTimeout) {
+        self.timeout = timeout
         let config = URLSessionConfiguration.default
-        
-        // HTTP кэширование
+
         config.requestCachePolicy = .returnCacheDataElseLoad
         config.urlCache = URLCache(
-            memoryCapacity: 10 * 1024 * 1024,  // 10 MB
-            diskCapacity: 50 * 1024 * 1024,    // 50 MB
+            memoryCapacity: ConfigurationDefaults.urlCacheMemoryCapacity,
+            diskCapacity: ConfigurationDefaults.urlCacheDiskCapacity,
             directory: nil
         )
-        
-        // Таймауты
+
         config.timeoutIntervalForRequest = timeout
-        config.timeoutIntervalForResource = timeout * 2
+        config.timeoutIntervalForResource = timeout * ConfigurationDefaults.networkResourceTimeoutMultiplier
         config.waitsForConnectivity = true
-        
+
         self.session = URLSession(configuration: config)
     }
 
     init(session: URLSession) {
         self.session = session
+        self.timeout = ConfigurationDefaults.networkTimeout
     }
 
     func decode<T: Decodable>(_ data: Data) throws -> T {
@@ -68,9 +69,8 @@ final class NetworkService {
                 throw NetworkError.invalidResponse
             }
 
-            // Логгирование статуса и кэша
             Logger.log("Status: \(httpResponse.statusCode)", level: .debug)
-            
+
             if let age = httpResponse.value(forHTTPHeaderField: "Age") {
                 Logger.log("Cache: hit (age: \(age)s)", level: .debug)
             } else {

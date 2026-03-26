@@ -8,12 +8,7 @@
 import Foundation
 import SwiftData
 
-protocol ConversionHistoryActorProtocol {
-    func saveConversion(from: String, to: String, amount: Double, result: Double, rate: Double) async throws
-    func deleteConversion(id: UUID) async throws
-}
-
-actor ConversionHistoryActor: ConversionHistoryActorProtocol {
+actor ConversionHistoryActor: ConversionHistoryActorType {
 
     private let modelContext: ModelContext
 
@@ -42,5 +37,12 @@ actor ConversionHistoryActor: ConversionHistoryActorProtocol {
             modelContext.delete(conversion)
             try modelContext.save()
         }
+    }
+
+    func fetchAll() async throws -> [Conversion] {
+        let descriptor = FetchDescriptor<Conversion>(
+            sortBy: [SortDescriptor(\.date, order: .reverse)]
+        )
+        return try modelContext.fetch(descriptor)
     }
 }

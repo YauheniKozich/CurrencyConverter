@@ -11,6 +11,32 @@ import SwiftData
 
 /// Вспомогательные функции для тестирования
 enum TestHelpers {
+    static let jsonContentType = ["Content-Type": "application/json"]
+
+    static let currencyConversionJSON = """
+    {
+        "meta": { "last_updated_at": "2025-05-20T12:00:00Z" },
+        "data": {
+            "EUR": { "code": "EUR", "value": 0.9 }
+        }
+    }
+    """
+
+    static let supportedCurrenciesJSON = """
+    {
+        "data": {
+            "USD": { "name": "US Dollar", "code": "USD" },
+            "EUR": { "name": "Euro", "code": "EUR" }
+        }
+    }
+    """
+
+    static let emptyCurrenciesJSON = """
+    {
+        "data": {}
+    }
+    """
+
     static func makeTestConfiguration() throws -> AppConfiguration {
         let testURL = URL(string: "https://api.test.com")!
         return try AppConfiguration(
@@ -29,12 +55,27 @@ enum TestHelpers {
         return try ModelContainer(for: schema, configurations: [configuration])
     }
 
+    static func makeJSONResponse(
+        url: URL,
+        statusCode: Int = 200
+    ) -> HTTPURLResponse {
+        HTTPURLResponse(
+            url: url,
+            statusCode: statusCode,
+            httpVersion: nil,
+            headerFields: jsonContentType
+        )!
+    }
+
+    static func makeJSONData(_ jsonString: String) -> Data {
+        Data(jsonString.utf8)
+    }
+
     static func makeMockURLProtocolHandler(statusCode: Int = 200,
-                                           jsonString: String,
-                                           url: String) -> ((URLRequest) throws -> (HTTPURLResponse, Data)) {
+                                           jsonString: String) -> ((URLRequest) throws -> (HTTPURLResponse, Data)) {
         return { request in
-            let response = HTTPURLResponse(url: request.url!, statusCode: statusCode, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
-            let data = jsonString.data(using: .utf8)!
+            let response = makeJSONResponse(url: request.url!, statusCode: statusCode)
+            let data = makeJSONData(jsonString)
             return (response, data)
         }
     }
