@@ -50,6 +50,10 @@ final class ConverterViewModel {
         errorMessage == "Неверный формат суммы"
     }
 
+    var isValidAmount: Bool {
+        numberFormatter.parse(amount) != nil
+    }
+
     var formattedResult: String {
         "\(amount) \(fromCurrency) = \(result) \(toCurrency)"
     }
@@ -57,10 +61,10 @@ final class ConverterViewModel {
     private let conversionService: ConversionService
     private let conversionFormatting: any ConversionFormatting
     private let loadCurrenciesUseCase: any LoadCurrenciesUseCaseProtocol
+    private let numberFormatter: any NumberFormatting
     private let preferences: UserPreferences
 
     private var convertTask: Task<Void, Never>?
-    private var loadCurrenciesTask: Task<Void, Never>?
 
     init(
         conversionUseCase: any CurrencyConversionUseCaseProtocol,
@@ -77,6 +81,7 @@ final class ConverterViewModel {
         )
         self.conversionFormatting = ConversionPresentationFormatter(numberFormatter: numberFormatter)
         self.loadCurrenciesUseCase = loadCurrenciesUseCase
+        self.numberFormatter = numberFormatter
         self.preferences = preferences
         self.fromCurrency = preferences.fromCurrency
         self.toCurrency = preferences.toCurrency
@@ -99,22 +104,14 @@ final class ConverterViewModel {
         }
     }
 
-    func loadCurrencies() {
-        loadCurrenciesTask?.cancel()
-        loadCurrenciesTask = Task { [weak self] in
-            guard let self = self else { return }
-            await self.loadSupportedCurrencies(forceRefresh: false)
-        }
+    func loadCurrenciesAsync() async {
+        guard !Task.isCancelled else { return }
+        await loadSupportedCurrencies(forceRefresh: false)
     }
 
     func refreshCurrencies() async {
-        loadCurrenciesTask?.cancel()
-        loadCurrenciesTask = Task { [weak self] in
-            guard let self = self else { return }
-            await self.loadSupportedCurrencies(forceRefresh: true)
-        }
-
-        await loadCurrenciesTask?.value
+        guard !Task.isCancelled else { return }
+        await loadSupportedCurrencies(forceRefresh: true)
     }
 
     private func performConversion() async {
@@ -163,6 +160,7 @@ final class ConverterViewModel {
     }
 
     private func loadSupportedCurrencies(forceRefresh: Bool) async {
+        guard !Task.isCancelled else { return }
         isLoadingCurrencies = true
         currenciesLoadingError = nil
         defer { isLoadingCurrencies = false }

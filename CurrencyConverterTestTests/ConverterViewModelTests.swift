@@ -51,6 +51,7 @@ final class ConverterViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.fromCurrency, "USD")
         XCTAssertEqual(viewModel.toCurrency, "EUR")
         XCTAssertEqual(viewModel.amount, "")
+        XCTAssertFalse(viewModel.isValidAmount)
         XCTAssertEqual(viewModel.result, "")
         XCTAssertEqual(viewModel.rate, "")
         XCTAssertNil(viewModel.errorMessage)
@@ -83,6 +84,18 @@ final class ConverterViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.result, "")
         XCTAssertEqual(viewModel.rate, "")
         XCTAssertEqual(viewModel.errorMessage, "Неверный формат суммы")
+    }
+
+    func testIsValidAmountReflectsParsableAmount() {
+        viewModel.setAmount("12.5")
+        mockFormatter.parseResult = 12.5
+
+        XCTAssertTrue(viewModel.isValidAmount)
+
+        viewModel.setAmount(".")
+        mockFormatter.parseResult = nil
+
+        XCTAssertFalse(viewModel.isValidAmount)
     }
 
     func testConvertNegativeAmount() async throws {

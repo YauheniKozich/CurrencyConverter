@@ -50,7 +50,7 @@ struct ConverterView: View {
                 Text(viewModel.errorMessage ?? "")
             }
             .task {
-                viewModel.loadCurrencies()
+                await viewModel.loadCurrenciesAsync()
             }
         }
     }
@@ -81,24 +81,26 @@ struct ConverterView: View {
     @ViewBuilder
     private var currencySelectionFeedbackSection: some View {
         if viewModel.currencies.isEmpty && !viewModel.isLoadingCurrencies {
-            Section {
-                if let error = viewModel.currenciesLoadingError {
-                    ScreenFeedbackView(
-                        title: "Не удалось загрузить валюты",
-                        systemImage: "exclamationmark.triangle.fill",
-                        description: error,
-                        actionTitle: "Попробовать снова"
-                    ) {
-                        viewModel.loadCurrencies()
+            if let error = viewModel.currenciesLoadingError {
+                feedbackSection(
+                    title: "Не удалось загрузить валюты",
+                    systemImage: "exclamationmark.triangle.fill",
+                    description: error,
+                    actionTitle: "Попробовать снова"
+                ) {
+                    Task {
+                        await viewModel.loadCurrenciesAsync()
                     }
-                } else {
-                    ScreenFeedbackView(
-                        title: "Нет доступных валют",
-                        systemImage: "globe",
-                        description: "Попробуйте обновить список",
-                        actionTitle: "Обновить"
-                    ) {
-                        viewModel.loadCurrencies()
+                }
+            } else {
+                feedbackSection(
+                    title: "Нет доступных валют",
+                    systemImage: "globe",
+                    description: "Попробуйте обновить список",
+                    actionTitle: "Обновить"
+                ) {
+                    Task {
+                        await viewModel.loadCurrenciesAsync()
                     }
                 }
             }
@@ -108,14 +110,14 @@ struct ConverterView: View {
     @ViewBuilder
     private var currenciesErrorSection: some View {
         if let error = viewModel.currenciesLoadingError, !viewModel.currencies.isEmpty {
-            Section {
-                ScreenFeedbackView(
-                    title: "Не удалось обновить список валют",
-                    systemImage: "exclamationmark.triangle.fill",
-                    description: error,
-                    actionTitle: "Попробовать снова"
-                ) {
-                    viewModel.loadCurrencies()
+            feedbackSection(
+                title: "Не удалось обновить список валют",
+                systemImage: "exclamationmark.triangle.fill",
+                description: error,
+                actionTitle: "Попробовать снова"
+            ) {
+                Task {
+                    await viewModel.loadCurrenciesAsync()
                 }
             }
         }
@@ -133,16 +135,24 @@ struct ConverterView: View {
                     RoundedRectangle(cornerRadius: UI.textFieldCornerRadius)
                         .stroke(viewModel.hasValidationError ? Color.red : Color.clear, lineWidth: UI.textFieldBorderWidth)
                 )
-                .onChange(of: amountInput) { oldValue, newValue in
+                .onChange(of: amountInput) { _, newValue in
+                    guard newValue != viewModel.amount else { return }
                     debounceTask?.cancel()
-                    debounceTask = Task {
-                        try? await Task.sleep(nanoseconds: UI.debounceNanoseconds)
-                        guard !Task.isCancelled else { return }
-                        viewModel.setAmount(newValue)
+                    debounceTask = Task { [weak viewModel] in
+                        do {
+                            try await Task.sleep(nanoseconds: UI.debounceNanoseconds)
+                            viewModel?.setAmount(newValue)
+                        } catch {
+                            return
+                        }
                     }
                 }
                 .onAppear {
                     amountInput = viewModel.amount
+                }
+                .onChange(of: viewModel.amount) { _, newValue in
+                    guard amountInput != newValue else { return }
+                    amountInput = newValue
                 }
         }
     }
@@ -155,7 +165,7 @@ struct ConverterView: View {
             }
             .accessibilityLabel("Конвертировать валюту")
             .accessibilityHint("Нажмите для выполнения конвертации")
-            .disabled(viewModel.amount.isEmpty || viewModel.currencies.isEmpty)
+            .disabled(!viewModel.isValidAmount || viewModel.currencies.isEmpty)
         }
     }
 
@@ -174,26 +184,26 @@ struct ConverterView: View {
     @ViewBuilder
     private var errorSection: some View {
         if let error = viewModel.errorMessage, !viewModel.hasValidationError {
-            Section {
-                ScreenFeedbackView(
-                    title: "Не удалось выполнить конвертацию",
-                    systemImage: "exclamationmark.circle.fill",
-                    description: error,
-                    actionTitle: "Попробовать снова",
-                    isProminentAction: false
-                ) {
-                    viewModel.convert()
-                }
+            feedbackSection(
+                title: "Не удалось выполнить конвертацию",
+                systemImage: "exclamationmark.circle.fill",
+                description: error,
+                actionTitle: "Попробовать снова",
+                isProminentAction: false
+            ) {
+                viewModel.convert()
             }
         }
     }
 
     @ViewBuilder
     private var navigationLinks: some View {
-        NavigationLink("История") {
-            HistoryView()
+        Section {
+            NavigationLink("История") {
+                HistoryView()
+            }
+            .accessibilityLabel("Перейти к истории конвертаций")
         }
-        .accessibilityLabel("Перейти к истории конвертаций")
     }
 
     // MARK: - Overlays
@@ -204,6 +214,27 @@ struct ConverterView: View {
             ScreenLoadingOverlayView(title: "Загрузка валют…")
         } else if viewModel.isConverting {
             ScreenLoadingOverlayView(title: "Конвертация…")
+        }
+    }
+
+    @ViewBuilder
+    private func feedbackSection(
+        title: String,
+        systemImage: String,
+        description: String? = nil,
+        actionTitle: String? = nil,
+        isProminentAction: Bool = true,
+        action: @escaping () -> Void
+    ) -> some View {
+        Section {
+            ScreenFeedbackView(
+                title: title,
+                systemImage: systemImage,
+                description: description,
+                actionTitle: actionTitle,
+                isProminentAction: isProminentAction,
+                action: action
+            )
         }
     }
 }
