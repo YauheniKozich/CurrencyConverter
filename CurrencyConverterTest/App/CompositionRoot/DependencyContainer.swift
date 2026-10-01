@@ -26,6 +26,7 @@ final class AppDependencies: Dependencies {
 
     private var networkService: NetworkService?
     private var repository: CurrencyRepository?
+    private var conversionHistoryActor: ConversionHistoryActor?
 
     // MARK: - Initialization
 
@@ -72,7 +73,7 @@ final class AppDependencies: Dependencies {
     @MainActor
     func createConverterScreen() async throws -> ConverterViewModel {
         let repository = try createRepository()
-        let actor = try ConversionHistoryActor(modelContainer: database)
+        let actor = try historyActor()
 
         let conversionUseCase = CurrencyConversionUseCase(repository: repository)
         let loadCurrenciesUseCase = LoadCurrenciesUseCase(repository: repository)
@@ -87,6 +88,24 @@ final class AppDependencies: Dependencies {
             numberFormatter: numberFormatter,
             preferences: preferences
         )
+    }
+
+    @MainActor
+    func createHistoryScreen() throws -> HistoryViewModel {
+        let actor = try historyActor()
+        let historyUseCase = ConversionHistoryUseCase(historyActor: actor)
+        return HistoryViewModel(historyUseCase: historyUseCase)
+    }
+
+    @MainActor
+    private func historyActor() throws -> ConversionHistoryActor {
+        if let conversionHistoryActor {
+            return conversionHistoryActor
+        }
+
+        let actor = try ConversionHistoryActor(modelContainer: database)
+        conversionHistoryActor = actor
+        return actor
     }
 
     func networking() -> NetworkService {

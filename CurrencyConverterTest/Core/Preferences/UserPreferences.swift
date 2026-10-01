@@ -8,7 +8,8 @@
 import Foundation
 
 /// Компонент для работы с пользовательскими настройками
-final class UserPreferences: @unchecked Sendable {
+@MainActor
+final class UserPreferences {
 
     private let defaults: UserDefaults
 

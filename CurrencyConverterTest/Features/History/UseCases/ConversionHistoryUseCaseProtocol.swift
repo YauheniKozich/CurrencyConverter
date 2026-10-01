@@ -8,6 +8,6 @@
 import Foundation
 
 protocol ConversionHistoryUseCaseProtocol: Sendable {
-    func fetchHistory() async throws -> [Conversion]
+    func fetchHistory() async throws -> [ConversionHistoryEntry]
     func deleteConversion(id: UUID) async throws
 }

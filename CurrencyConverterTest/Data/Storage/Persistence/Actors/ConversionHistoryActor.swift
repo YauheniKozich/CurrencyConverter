@@ -8,7 +8,7 @@
 import Foundation
 import SwiftData
 
-actor ConversionHistoryActor: ConversionHistoryActorType {
+actor ConversionHistoryActor: ConversionHistoryStore, ConversionHistoryReader {
 
     private let modelContext: ModelContext
 
@@ -39,10 +39,20 @@ actor ConversionHistoryActor: ConversionHistoryActorType {
         }
     }
 
-    func fetchAll() async throws -> [Conversion] {
+    func fetchHistory() async throws -> [ConversionHistoryEntry] {
         let descriptor = FetchDescriptor<Conversion>(
             sortBy: [SortDescriptor(\.date, order: .reverse)]
         )
-        return try modelContext.fetch(descriptor)
+        return try modelContext.fetch(descriptor).map {
+            ConversionHistoryEntry(
+                id: $0.id,
+                from: $0.from,
+                to: $0.to,
+                amount: $0.amount,
+                result: $0.result,
+                rate: $0.rate,
+                date: $0.date
+            )
+        }
     }
 }

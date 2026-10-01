@@ -1,12 +1,6 @@
 import SwiftUI
 import SwiftData
 
-// MARK: - App Schema
-
-private enum AppSchema {
-    static let schema = Schema([Conversion.self, ExchangeRate.self])
-}
-
 // MARK: - App Entry Point
 
 @main
@@ -14,29 +8,30 @@ struct CurrencyConverterApp: App {
     @State private var viewModel: ConverterViewModel?
     @State private var initError: Error?
     @State private var modelContainer: ModelContainer?
-    @State private var dependencies: AppDependencies?
+    @State private var historyViewModel: HistoryViewModel?
+    @State private var isInitializing = false
 
     var body: some Scene {
         WindowGroup {
-            contentView
+            if let modelContainer {
+                contentView
+                    .modelContainer(modelContainer)
+            } else {
+                contentView
+            }
         }
-        .modelContainer(modelContainer ?? defaultModelContainer)
-    }
-
-    private var defaultModelContainer: ModelContainer {
-        makeDefaultModelContainer()
     }
 
     private var contentView: some View {
         Group {
             if let error = initError {
                 errorView(error: error)
-            } else if let viewModel = viewModel {
-                ConverterView(viewModel: viewModel)
+            } else if let viewModel, let historyViewModel {
+                ConverterView(viewModel: viewModel, historyViewModel: historyViewModel)
             } else {
                 ProgressView("Инициализация...")
                     .task {
-                        initializeApp()
+                        await initializeApp()
                     }
             }
         }
@@ -71,7 +66,7 @@ struct CurrencyConverterApp: App {
 
             Button("Попробовать снова") {
                 Task {
-                    initializeApp()
+                    await initializeApp()
                 }
             }
             .padding(.top)
@@ -80,35 +75,26 @@ struct CurrencyConverterApp: App {
     }
 
     @MainActor
-    private func initializeApp() {
-        Task {
-            do {
-                let deps = try AppDependencies()
-                let vm = try await deps.createConverterScreen()
+    private func initializeApp() async {
+        guard !isInitializing else { return }
+        isInitializing = true
+        defer { isInitializing = false }
 
-                viewModel = vm
-                dependencies = deps
-                initError = nil
-                modelContainer = deps.database
-            } catch {
-                initError = error
-                viewModel = nil
-                dependencies = nil
-                modelContainer = nil
-                Logger.log("Ошибка инициализации: \(error)", level: .error)
-            }
+        do {
+            let deps = try AppDependencies()
+            let converterViewModel = try await deps.createConverterScreen()
+            let historyViewModel = try deps.createHistoryScreen()
+
+            self.viewModel = converterViewModel
+            self.historyViewModel = historyViewModel
+            self.modelContainer = deps.database
+            initError = nil
+        } catch {
+            initError = error
+            viewModel = nil
+            historyViewModel = nil
+            modelContainer = nil
+            Logger.log("Ошибка инициализации: \(error)", level: .error)
         }
-    }
-
-    private func makeDefaultModelContainer() -> ModelContainer {
-        if let container = try? ModelContainer(for: AppSchema.schema) {
-            return container
-        }
-
-        Logger.log("Failed to create default ModelContainer, using in-memory", level: .warning)
-
-        // Fallback: in-memory контейнер
-        let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
-        return try! ModelContainer(for: AppSchema.schema, configurations: [configuration])
     }
 }

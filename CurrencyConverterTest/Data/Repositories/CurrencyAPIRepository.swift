@@ -94,6 +94,8 @@ final class CurrencyAPIRepository: CurrencyRepository, @unchecked Sendable {
         do {
             let result = try await fetchAndCacheConversion(from: from, to: to, amount: amount)
             return result
+        } catch is CancellationError {
+            throw CancellationError()
         } catch let appError as AppError {
             Logger.log("Ошибка конвертации: \(appError.failureReason ?? "")", level: .error)
 

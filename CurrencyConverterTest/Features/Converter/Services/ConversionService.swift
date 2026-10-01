@@ -40,14 +40,21 @@ final class ConversionService {
             amount: amountValue
         )
 
-        // Сохраняем в историю (не блокируем основной поток)
-        try? await saveConversionHistoryUseCase.execute(
-            from: from,
-            to: to,
-            amount: amountValue,
-            result: conversion.result,
-            rate: conversion.rate
-        )
+        try Task.checkCancellation()
+
+        do {
+            try await saveConversionHistoryUseCase.execute(
+                from: from,
+                to: to,
+                amount: amountValue,
+                result: conversion.result,
+                rate: conversion.rate
+            )
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            Logger.log("Failed to save conversion history: \(error)", level: .error)
+        }
 
         return conversion
     }

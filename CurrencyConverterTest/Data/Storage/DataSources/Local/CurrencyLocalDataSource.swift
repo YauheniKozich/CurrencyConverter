@@ -13,6 +13,8 @@ struct CachedRate: Sendable {
     let timestamp: Date
 }
 
+/// Safe to share because it is created for and accessed only by the
+/// `CurrencyCacheManager` actor, which serializes every synchronous context access.
 final class CurrencyLocalDataSource: @unchecked Sendable {
 
     private let context: ModelContext

@@ -40,14 +40,15 @@ final class ConverterViewModel {
     private(set) var currencies: [String] = []
     private(set) var isLoadingCurrencies: Bool = false
     private(set) var currenciesLoadingError: String?
+    private(set) var errorType: ErrorType = .unknown
 
     var showErrorAlert: Bool {
-        guard let error = errorMessage else { return false }
-        return ErrorType.from(error).isNonRecoverable
+        guard errorMessage != nil else { return false }
+        return errorType.isNonRecoverable
     }
 
     var hasValidationError: Bool {
-        errorMessage == "Неверный формат суммы"
+        errorType == .validation
     }
 
     var isValidAmount: Bool {
@@ -65,6 +66,8 @@ final class ConverterViewModel {
     private let preferences: UserPreferences
 
     private var convertTask: Task<Void, Never>?
+    private var conversionRequestID = 0
+    private var currencyLoadRequestID = 0
 
     init(
         conversionUseCase: any CurrencyConversionUseCaseProtocol,
@@ -90,17 +93,24 @@ final class ConverterViewModel {
     func setAmount(_ newAmount: String) {
         amount = normalizeAmount(newAmount)
         errorMessage = nil
+        errorType = .unknown
     }
 
     func clearError() {
         errorMessage = nil
+        errorType = .unknown
     }
 
     func convert() {
         convertTask?.cancel()
+        conversionRequestID &+= 1
+        let requestID = conversionRequestID
+        let from = fromCurrency
+        let to = toCurrency
+        let amount = amount
+        isConverting = true
         convertTask = Task { [weak self] in
-            guard let self = self else { return }
-            await self.performConversion()
+            await self?.performConversion(requestID: requestID, from: from, to: to, amount: amount)
         }
     }
 
@@ -114,34 +124,41 @@ final class ConverterViewModel {
         await loadSupportedCurrencies(forceRefresh: true)
     }
 
-    private func performConversion() async {
-        isConverting = true
-        defer { isConverting = false }
+    private func performConversion(requestID: Int, from: String, to: String, amount: String) async {
+        defer {
+            if requestID == conversionRequestID {
+                isConverting = false
+                convertTask = nil
+            }
+        }
 
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, requestID == conversionRequestID else { return }
 
         do {
             let conversion = try await conversionService.convert(
-                from: fromCurrency,
-                to: toCurrency,
+                from: from,
+                to: to,
                 amount: amount
             )
 
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, requestID == conversionRequestID else { return }
 
             result = conversionFormatting.formatResult(conversion.result)
             rate = conversionFormatting.formatRate(conversion.rate)
             errorMessage = nil
+            errorType = .unknown
 
         } catch let conversionError as ConversionService.ConversionError {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, requestID == conversionRequestID else { return }
             errorMessage = conversionError.errorDescription
+            errorType = .validation
             result = ""
             rate = ""
 
         } catch let appError as AppError {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, requestID == conversionRequestID else { return }
             errorMessage = appError.errorDescription
+            errorType = ErrorType.from(appError)
 
             if let reason = appError.failureReason {
                 Logger.log("Conversion error: \(reason)", level: .error)
@@ -151,8 +168,9 @@ final class ConverterViewModel {
             rate = ""
 
         } catch {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, requestID == conversionRequestID else { return }
             errorMessage = "Произошла ошибка. Попробуйте снова."
+            errorType = .unknown
             Logger.log("Unknown conversion error: \(error)", level: .error)
             result = ""
             rate = ""
@@ -161,16 +179,22 @@ final class ConverterViewModel {
 
     private func loadSupportedCurrencies(forceRefresh: Bool) async {
         guard !Task.isCancelled else { return }
+        currencyLoadRequestID &+= 1
+        let requestID = currencyLoadRequestID
         isLoadingCurrencies = true
         currenciesLoadingError = nil
-        defer { isLoadingCurrencies = false }
+        defer {
+            if requestID == currencyLoadRequestID {
+                isLoadingCurrencies = false
+            }
+        }
 
         do {
             let loadedCurrencies = try await loadCurrenciesUseCase.execute(forceRefresh: forceRefresh)
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, requestID == currencyLoadRequestID else { return }
             currencies = loadedCurrencies
         } catch let appError as AppError {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, requestID == currencyLoadRequestID else { return }
 
             currenciesLoadingError = appError.errorDescription
 
@@ -178,7 +202,7 @@ final class ConverterViewModel {
                 Logger.log("Load currencies error: \(reason)", level: .error)
             }
         } catch {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, requestID == currencyLoadRequestID else { return }
 
             currenciesLoadingError = "Не удалось загрузить валюты"
             Logger.log("Unknown load currencies error: \(error)", level: .error)

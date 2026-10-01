@@ -1,12 +1,4 @@
-//
-//  HistoryListView.swift
-//  CurrencyConverterTest
-//
-//  Created by Codex on 26.03.26.
-//
-
 import SwiftUI
-import SwiftData
 
 struct HistoryListView: View {
     private enum UI {
@@ -14,44 +6,40 @@ struct HistoryListView: View {
         static let minRowHeight: CGFloat = 44
     }
 
+    let conversions: [ConversionHistoryEntry]
     let searchText: String
     let onResetSearch: (() -> Void)?
-    let onDelete: @Sendable (UUID) async -> Void
+    let onDelete: (UUID) async -> Void
     private let formatter: any ConversionFormatting
 
-    @Query private var conversions: [Conversion]
-
     init(
+        conversions: [ConversionHistoryEntry],
         searchText: String,
         onResetSearch: (() -> Void)? = nil,
-        onDelete: @escaping @Sendable (UUID) async -> Void,
+        onDelete: @escaping (UUID) async -> Void,
         formatter: any ConversionFormatting = ConversionPresentationFormatter(
             numberFormatter: NumberFormatterService(locale: .current)
         )
     ) {
+        self.conversions = conversions
         self.searchText = searchText
         self.onResetSearch = onResetSearch
         self.onDelete = onDelete
         self.formatter = formatter
+    }
 
-        let normalizedSearchText = searchText
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .uppercased()
-
-        if normalizedSearchText.isEmpty {
-            _conversions = Query(sort: \Conversion.date, order: .reverse)
-        } else {
-            let predicate = #Predicate<Conversion> { conversion in
-                conversion.from.contains(normalizedSearchText) || conversion.to.contains(normalizedSearchText)
-            }
-
-            _conversions = Query(filter: predicate, sort: \Conversion.date, order: .reverse)
+    private var filteredConversions: [ConversionHistoryEntry] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return conversions }
+        return conversions.filter {
+            $0.from.localizedCaseInsensitiveContains(query)
+                || $0.to.localizedCaseInsensitiveContains(query)
         }
     }
 
     var body: some View {
         Group {
-            if conversions.isEmpty {
+            if filteredConversions.isEmpty {
                 emptyState
             } else {
                 listView
@@ -61,8 +49,7 @@ struct HistoryListView: View {
 
     @ViewBuilder
     private var emptyState: some View {
-        let trimmedSearchText = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let hasSearchText = !trimmedSearchText.isEmpty
+        let hasSearchText = !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 
         ScreenFeedbackView(
             title: hasSearchText ? "Ничего не найдено" : "Нет истории",
@@ -78,12 +65,12 @@ struct HistoryListView: View {
 
     private var listView: some View {
         List {
-            ForEach(conversions) { item in
+            ForEach(filteredConversions) { item in
                 conversionRow(item: item)
             }
             .onDelete { offsets in
-                let ids = offsets.map { conversions[$0].id }
-
+                let visibleConversions = filteredConversions
+                let ids = offsets.map { visibleConversions[$0].id }
                 Task {
                     for id in ids {
                         await onDelete(id)
@@ -93,7 +80,7 @@ struct HistoryListView: View {
         }
     }
 
-    private func conversionRow(item: Conversion) -> some View {
+    private func conversionRow(item: ConversionHistoryEntry) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: UI.rowSpacing) {
                 Text("\(formatter.formatAmount(item.amount)) \(item.from) → \(formatter.formatResult(item.result)) \(item.to)")

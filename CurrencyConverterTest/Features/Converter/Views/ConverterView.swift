@@ -15,6 +15,7 @@ struct ConverterView: View {
     }
 
     @Bindable var viewModel: ConverterViewModel
+    let historyViewModel: HistoryViewModel
     @State private var amountInput: String = ""
     @State private var debounceTask: Task<Void, Never>?
 
@@ -138,10 +139,11 @@ struct ConverterView: View {
                 .onChange(of: amountInput) { _, newValue in
                     guard newValue != viewModel.amount else { return }
                     debounceTask?.cancel()
-                    debounceTask = Task { [weak viewModel] in
+                    let model = viewModel
+                    debounceTask = Task { [weak model] in
                         do {
                             try await Task.sleep(nanoseconds: UI.debounceNanoseconds)
-                            viewModel?.setAmount(newValue)
+                            model?.setAmount(newValue)
                         } catch {
                             return
                         }
@@ -200,7 +202,7 @@ struct ConverterView: View {
     private var navigationLinks: some View {
         Section {
             NavigationLink("История") {
-                HistoryView()
+                HistoryView(viewModel: historyViewModel)
             }
             .accessibilityLabel("Перейти к истории конвертаций")
         }

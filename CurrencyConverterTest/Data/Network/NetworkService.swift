@@ -82,6 +82,10 @@ final class NetworkService: Sendable {
             }
 
             return data
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as URLError where error.code == .cancelled {
+            throw CancellationError()
         } catch let error as NetworkError {
             Logger.log("Request error: \(error.localizedDescription)", level: .error)
             throw error

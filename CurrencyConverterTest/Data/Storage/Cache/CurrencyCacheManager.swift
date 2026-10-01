@@ -46,7 +46,7 @@ actor CurrencyCacheManager {
         }
 
         let requestGeneration = currenciesGeneration
-        currenciesLoadTask = Task {
+        let loadTask = Task {
             do {
                 let currencies = try await load()
 
@@ -60,8 +60,9 @@ actor CurrencyCacheManager {
                 throw error
             }
         }
+        currenciesLoadTask = loadTask
 
-        return try await currenciesLoadTask!.value
+        return try await loadTask.value
     }
 
     func invalidateCurrenciesCache() {

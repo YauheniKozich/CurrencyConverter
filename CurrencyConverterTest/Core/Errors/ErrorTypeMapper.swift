@@ -12,26 +12,31 @@ enum ErrorType {
     case validation
     case configuration
     case network
+    case data
+    case storage
     case unknown
 
     var isNonRecoverable: Bool {
         switch self {
-        case .validation, .configuration: return true
+        case .validation, .configuration, .data, .storage: return true
         case .network, .unknown: return false
         }
     }
 
-    static func from(_ error: String) -> ErrorType {
-        let validationKeywords = ["Неверный формат", "Некорректная"]
-        let configurationKeywords = ["Не указаны", "Конфигурация"]
-
-        if validationKeywords.contains(where: error.contains) {
+    static func from(_ error: AppError) -> ErrorType {
+        switch error {
+        case .validationError:
             return .validation
-        } else if configurationKeywords.contains(where: error.contains) {
+        case .configurationError:
             return .configuration
-        } else if error.contains("сеть") || error.contains("network") {
+        case .networkUnavailable, .networkTimeout, .serverError:
             return .network
+        case .dataNotFound, .invalidDataFormat:
+            return .data
+        case .storageError:
+            return .storage
+        case .unknown:
+            return .unknown
         }
-        return .unknown
     }
 }
