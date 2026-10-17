@@ -10,10 +10,11 @@ import SwiftUI
 struct ScreenFeedbackView: View {
     private enum UI {
         static let spacing: CGFloat = 12
-        static let iconSize: CGFloat = 36
         static let horizontalPadding: CGFloat = 20
         static let verticalPadding: CGFloat = 16
     }
+
+    @ScaledMetric(relativeTo: .title) private var iconSize: CGFloat = 36
 
     let title: String
     let systemImage: String
@@ -41,8 +42,9 @@ struct ScreenFeedbackView: View {
     var body: some View {
         VStack(spacing: UI.spacing) {
             Image(systemName: systemImage)
-                .font(.system(size: UI.iconSize, weight: .semibold))
+                .font(.system(size: iconSize, weight: .semibold))
                 .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
 
             Text(title)
                 .font(.headline)

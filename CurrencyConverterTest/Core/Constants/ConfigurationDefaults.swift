@@ -16,4 +16,6 @@ enum ConfigurationDefaults {
     static let urlCacheDiskCapacity = 50 * 1024 * 1024
     static let keychainService = Bundle.main.bundleIdentifier ?? "com.currencyconverter"
     static let keychainAccount = "CurrencyAPIKey"
+    static let maxHistoryEntries: Int = 100
+    static let defaultBaseURL = URL(string: "https://api.currencyapi.com/")!
 }

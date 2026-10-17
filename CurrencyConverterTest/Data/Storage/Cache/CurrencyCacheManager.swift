@@ -15,7 +15,7 @@ actor CurrencyCacheManager {
     private let cacheTTL: TimeInterval
 
     private var cachedCurrencies: [String: Currency]?
-    private var currenciesLoadTask: Task<[String: Currency], Error>?
+    private var currenciesLoadTask: Task<[String: Currency], any Error>?
     private var lastCurrenciesHash: Int?
     private var currenciesGeneration: UInt64 = 0
 
@@ -40,6 +40,16 @@ actor CurrencyCacheManager {
             return cached
         }
 
+        // Проверяем сохранённый дисковый кэш при холодном старте
+        if !forceRefresh,
+           let diskCached = try? localDataSource.loadCachedCurrencies(),
+           !diskCached.isEmpty {
+            cachedCurrencies = diskCached
+            lastCurrenciesHash = calculateCurrenciesHash(diskCached)
+            Logger.log("Валюты загружены из дискового кэша: \(diskCached.count)", level: .debug)
+            return diskCached
+        }
+
         if let existingTask = currenciesLoadTask {
             Logger.log("Ждём завершения загрузки валют", level: .debug)
             return try await existingTask.value
@@ -57,6 +67,16 @@ actor CurrencyCacheManager {
                 )
             } catch {
                 clearLoadTaskIfCurrent(generation: requestGeneration)
+
+                // Офлайн фоллбэк: если запрос упал (например, нет сети), используем сохранённый дисковый кэш
+                if let diskCached = try? localDataSource.loadCachedCurrencies(),
+                   !diskCached.isEmpty {
+                    Logger.log("Сеть недоступна, возвращаем сохранённый дисковый кэш валют", level: .warning)
+                    cachedCurrencies = diskCached
+                    lastCurrenciesHash = calculateCurrenciesHash(diskCached)
+                    return diskCached
+                }
+
                 throw error
             }
         }
@@ -129,6 +149,7 @@ actor CurrencyCacheManager {
         cachedCurrencies = currencies
         lastCurrenciesHash = currentHash
         currenciesLoadTask = nil
+        try? localDataSource.saveCachedCurrencies(currencies)
         return currencies
     }
 

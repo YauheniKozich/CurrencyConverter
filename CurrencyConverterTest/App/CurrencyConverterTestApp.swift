@@ -6,10 +6,11 @@ import SwiftData
 @main
 struct CurrencyConverterApp: App {
     @State private var viewModel: ConverterViewModel?
-    @State private var initError: Error?
+    @State private var initError: (any Error)?
     @State private var modelContainer: ModelContainer?
     @State private var historyViewModel: HistoryViewModel?
     @State private var isInitializing = false
+    @State private var showAPIKeySheet = false
 
     var body: some Scene {
         WindowGroup {
@@ -37,7 +38,7 @@ struct CurrencyConverterApp: App {
         }
     }
 
-    private func errorView(error: Error) -> some View {
+    private func errorView(error: any Error) -> some View {
         VStack(spacing: 16) {
             Image(systemName: "exclamationmark.triangle")
                 .font(.largeTitle)
@@ -64,14 +65,33 @@ struct CurrencyConverterApp: App {
                     .padding(.horizontal)
             }
 
-            Button("Попробовать снова") {
-                Task {
-                    await initializeApp()
+            VStack(spacing: 12) {
+                Button {
+                    showAPIKeySheet = true
+                } label: {
+                    Label("Ввести API ключ", systemImage: "key.fill")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
                 }
+                .buttonStyle(.borderedProminent)
+
+                Button("Попробовать снова") {
+                    Task {
+                        await initializeApp()
+                    }
+                }
+                .buttonStyle(.bordered)
             }
             .padding(.top)
         }
         .padding()
+        .sheet(isPresented: $showAPIKeySheet) {
+            APIKeyInputSheet { _ in
+                Task {
+                    await initializeApp()
+                }
+            }
+        }
     }
 
     @MainActor
@@ -82,6 +102,7 @@ struct CurrencyConverterApp: App {
 
         do {
             let deps = try AppDependencies()
+            AppDependencies.setShared(deps)
             let converterViewModel = try await deps.createConverterScreen()
             let historyViewModel = try deps.createHistoryScreen()
 

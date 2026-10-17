@@ -6,6 +6,7 @@
 //
 
 import XCTest
+import SwiftData
 @testable import CurrencyConverterTest
 
 @MainActor
@@ -22,9 +23,10 @@ final class CurrencyCacheManagerTests: XCTestCase {
         )
     }
     
-    override func tearDown() {
+    override func tearDown() async throws {
         cacheManager = nil
         mockDataSource = nil
+        try await super.tearDown()
     }
     
     // MARK: - Currency List Cache Tests
@@ -59,16 +61,17 @@ final class CurrencyCacheManagerTests: XCTestCase {
             "GBP": Currency(code: "GBP", name: "British Pound")
         ]
         
-        var loadCalled = false
+        let tracker = CallTracker()
         
         // Act
         let result = try await cacheManager.getCurrencies {
-            loadCalled = true
+            await tracker.call()
             return expectedCurrencies
         }
         
         // Assert
-        XCTAssertTrue(loadCalled, "Load block should be called")
+        let wasCalled = await tracker.wasCalled
+        XCTAssertTrue(wasCalled, "Load block should be called")
         XCTAssertEqual(result.count, 1)
         XCTAssertEqual(result["GBP"]?.name, "British Pound")
     }
@@ -79,25 +82,27 @@ final class CurrencyCacheManagerTests: XCTestCase {
             "USD": Currency(code: "USD", name: "US Dollar")
         ]
         
-        var loadCallCount = 0
-        let loadBlock: () async throws -> [String: Currency] = {
-            loadCallCount += 1
+        let tracker = CallTracker()
+        let loadBlock: @Sendable () async throws -> [String: Currency] = {
+            await tracker.call()
             try? await Task.sleep(nanoseconds: 100_000_000)  // 100ms delay
             return expectedCurrencies
         }
         
         // Act - multiple concurrent calls
-        async let first = cacheManager.getCurrencies(load: loadBlock)
-        async let second = cacheManager.getCurrencies(load: loadBlock)
-        async let third = cacheManager.getCurrencies(load: loadBlock)
+        let manager = cacheManager!
+        async let first = manager.getCurrencies(load: loadBlock)
+        async let second = manager.getCurrencies(load: loadBlock)
+        async let third = manager.getCurrencies(load: loadBlock)
         
-        let results = try await (first, second, third)
+        let (firstResult, secondResult, thirdResult) = try await (first, second, third)
         
         // Assert
-        XCTAssertEqual(loadCallCount, 1, "Should only call load block once for concurrent calls")
-        XCTAssertEqual(results.0.count, 1)
-        XCTAssertEqual(results.1.count, 1)
-        XCTAssertEqual(results.2.count, 1)
+        let callCount = await tracker.count
+        XCTAssertEqual(callCount, 1, "Should only call load block once for concurrent calls")
+        XCTAssertEqual(firstResult.count, 1)
+        XCTAssertEqual(secondResult.count, 1)
+        XCTAssertEqual(thirdResult.count, 1)
     }
     
     func testInvalidateCurrenciesCache() async throws {
@@ -115,14 +120,15 @@ final class CurrencyCacheManagerTests: XCTestCase {
         await cacheManager.invalidateCurrenciesCache()
 
         // Load again - should call load block
-        var loadCalled = false
+        let tracker = CallTracker()
         _ = try await cacheManager.getCurrencies {
-            loadCalled = true
+            await tracker.call()
             return expectedCurrencies
         }
 
         // Assert
-        XCTAssertTrue(loadCalled, "Should call load block after invalidation")
+        let wasCalled = await tracker.wasCalled
+        XCTAssertTrue(wasCalled, "Should call load block after invalidation")
     }
 
     // MARK: - Exchange Rate Cache Tests
@@ -209,13 +215,86 @@ final class CurrencyCacheManagerTests: XCTestCase {
         // Act & Assert - should not crash
         await cacheManager.saveRate(from: "USD", to: "EUR", rate: 0.90)
     }
+
+    func testGetCurrencies_usesDiskCache_whenRAMCacheEmpty() async throws {
+        // Arrange
+        let diskCurrencies: [String: Currency] = [
+            "GBP": Currency(code: "GBP", name: "British Pound")
+        ]
+        mockDataSource.cachedCurrencies = diskCurrencies
+
+        // Act
+        let result = try await cacheManager.getCurrencies {
+            XCTFail("Should not call load block when disk cache is available")
+            return [:]
+        }
+
+        // Assert
+        XCTAssertEqual(result.count, 1)
+        XCTAssertEqual(result["GBP"]?.name, "British Pound")
+    }
+
+    func testGetCurrencies_fallsBackToDiskCache_whenNetworkFails() async throws {
+        // Arrange
+        let diskCurrencies: [String: Currency] = [
+            "JPY": Currency(code: "JPY", name: "Japanese Yen")
+        ]
+        mockDataSource.cachedCurrencies = diskCurrencies
+
+        // Act - network fails with forceRefresh
+        let result = try await cacheManager.getCurrencies(load: {
+            throw URLError(.notConnectedToInternet)
+        }, forceRefresh: true)
+
+        // Assert - gracefully fallback to disk
+        XCTAssertEqual(result.count, 1)
+        XCTAssertEqual(result["JPY"]?.name, "Japanese Yen")
+    }
+
+    func testCurrencyLocalDataSource_saveRate_upsertDoesNotDuplicate() throws {
+        let schema = Schema([ExchangeRate.self, Conversion.self])
+        let config = ModelConfiguration(isStoredInMemoryOnly: true)
+        let container = try ModelContainer(for: schema, configurations: config)
+        let dataSource = CurrencyLocalDataSource(modelContainer: container)
+
+        // Act - first save
+        try dataSource.saveRate(from: "USD", to: "EUR", rate: 0.92)
+        let firstFetch = try dataSource.loadCachedRate(from: "USD", to: "EUR")
+        XCTAssertEqual(firstFetch?.rate, 0.92)
+
+        // Act - second save for the same pair with updated rate
+        try dataSource.saveRate(from: "USD", to: "EUR", rate: 0.95)
+        let secondFetch = try dataSource.loadCachedRate(from: "USD", to: "EUR")
+        XCTAssertEqual(secondFetch?.rate, 0.95)
+
+        // Assert - verify only 1 row exists in SwiftData
+        let context = ModelContext(container)
+        let descriptor = FetchDescriptor<ExchangeRate>()
+        let allRates = try context.fetch(descriptor)
+        XCTAssertEqual(allRates.count, 1)
+        XCTAssertEqual(allRates.first?.rate, 0.95)
+    }
+}
+
+// MARK: - Test Helpers
+
+private actor CallTracker {
+    var count: Int = 0
+    var wasCalled: Bool = false
+
+    func call() {
+        count += 1
+        wasCalled = true
+    }
 }
 
 // MARK: - Mock Currency Local DataSource
 
-final class MockCurrencyLocalDataSource: LocalCurrencyDataSource {
+final class MockCurrencyLocalDataSource: LocalCurrencyDataSource, @unchecked Sendable {
     var cachedRate: CachedRate?
     var savedRate: (from: String, to: String, rate: Double)?
+    var cachedCurrencies: [String: Currency]?
+    var savedCurrencies: [String: Currency]?
     var shouldFailOnSave = false
     
     func loadCachedRate(from: String, to: String) throws -> CachedRate? {
@@ -227,5 +306,13 @@ final class MockCurrencyLocalDataSource: LocalCurrencyDataSource {
             throw NSError(domain: "MockError", code: 1, userInfo: [NSLocalizedDescriptionKey: "Save failed"])
         }
         savedRate = (from, to, rate)
+    }
+
+    func loadCachedCurrencies() throws -> [String: Currency]? {
+        return cachedCurrencies
+    }
+
+    func saveCachedCurrencies(_ currencies: [String: Currency]) throws {
+        savedCurrencies = currencies
     }
 }

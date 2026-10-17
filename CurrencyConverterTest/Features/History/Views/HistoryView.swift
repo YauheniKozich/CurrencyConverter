@@ -1,7 +1,9 @@
 import SwiftUI
 
 struct HistoryView: View {
+    @Environment(\.dismiss) private var dismiss
     @Bindable var viewModel: HistoryViewModel
+    var onSelect: ((ConversionHistoryEntry) -> Void)? = nil
     @State private var searchText = ""
 
     private var hasError: Bool {
@@ -13,6 +15,10 @@ struct HistoryView: View {
             conversions: viewModel.conversions,
             searchText: searchText,
             onResetSearch: { searchText = "" },
+            onSelect: { entry in
+                onSelect?(entry)
+                dismiss()
+            },
             onDelete: { id in await viewModel.deleteConversion(id: id) }
         )
         .navigationTitle("История")
@@ -32,8 +38,27 @@ struct HistoryView: View {
             Text(viewModel.errorMessage ?? "")
         }
         .searchable(text: $searchText, prompt: "Поиск по валютам")
+        .toolbar {
+            if !viewModel.conversions.isEmpty {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    ShareLink(
+                        item: viewModel.csvExportString,
+                        subject: Text("История конвертаций"),
+                        message: Text("Экспорт истории конвертаций валют в формате CSV")
+                    ) {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                    .accessibilityLabel("Экспорт истории в CSV")
+                    .accessibilityHint("Позволяет сохранить или отправить файл истории конвертаций")
+                }
+            }
+        }
         .task {
             await viewModel.loadHistory()
+        }
+        .sensoryFeedback(.impact(weight: .medium), trigger: viewModel.conversions.count)
+        .sensoryFeedback(.error, trigger: viewModel.errorMessage) { oldValue, newValue in
+            newValue != nil && oldValue != newValue
         }
     }
 

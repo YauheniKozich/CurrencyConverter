@@ -19,6 +19,7 @@ struct ScreenLoadingOverlayView: View {
         ZStack {
             Color(.systemBackground)
                 .opacity(UI.opacity)
+                .ignoresSafeArea()
 
             VStack {
                 ProgressView()
@@ -31,5 +32,8 @@ struct ScreenLoadingOverlayView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(.isModal)
     }
 }

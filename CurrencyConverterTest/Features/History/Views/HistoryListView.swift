@@ -9,13 +9,16 @@ struct HistoryListView: View {
     let conversions: [ConversionHistoryEntry]
     let searchText: String
     let onResetSearch: (() -> Void)?
+    let onSelect: ((ConversionHistoryEntry) -> Void)?
     let onDelete: (UUID) async -> Void
     private let formatter: any ConversionFormatting
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     init(
         conversions: [ConversionHistoryEntry],
         searchText: String,
         onResetSearch: (() -> Void)? = nil,
+        onSelect: ((ConversionHistoryEntry) -> Void)? = nil,
         onDelete: @escaping (UUID) async -> Void,
         formatter: any ConversionFormatting = ConversionPresentationFormatter(
             numberFormatter: NumberFormatterService(locale: .current)
@@ -24,6 +27,7 @@ struct HistoryListView: View {
         self.conversions = conversions
         self.searchText = searchText
         self.onResetSearch = onResetSearch
+        self.onSelect = onSelect
         self.onDelete = onDelete
         self.formatter = formatter
     }
@@ -66,7 +70,16 @@ struct HistoryListView: View {
     private var listView: some View {
         List {
             ForEach(filteredConversions) { item in
-                conversionRow(item: item)
+                if let onSelect {
+                    Button {
+                        onSelect(item)
+                    } label: {
+                        conversionRow(item: item)
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    conversionRow(item: item)
+                }
             }
             .onDelete { offsets in
                 let visibleConversions = filteredConversions
@@ -81,11 +94,11 @@ struct HistoryListView: View {
     }
 
     private func conversionRow(item: ConversionHistoryEntry) -> some View {
-        HStack {
+        HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: UI.rowSpacing) {
                 Text("\(formatter.formatAmount(item.amount)) \(item.from) → \(formatter.formatResult(item.result)) \(item.to)")
-                    .font(.body)
-                    .lineLimit(2)
+                    .font(.body.weight(.medium))
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
                     .accessibilityLabel("\(formatter.formatAmount(item.amount)) \(item.from) в \(formatter.formatResult(item.result)) \(item.to)")
 
                 Text("Курс: \(formatter.formatRate(item.rate))")
@@ -99,8 +112,58 @@ struct HistoryListView: View {
                     .accessibilityLabel("Дата конвертации: \(item.date.formatted(date: .complete, time: .shortened))")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+
+            if onSelect != nil {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.subheadline)
+                    .foregroundColor(.accentColor)
+                    .accessibilityHidden(true)
+            }
         }
+        .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
+        .accessibilityHint(onSelect != nil ? "Нажмите, чтобы применить эту конвертацию" : "")
         .frame(minHeight: UI.minRowHeight)
     }
+}
+
+#Preview("With Items") {
+    NavigationStack {
+        HistoryListView(
+            conversions: [
+                ConversionHistoryEntry(from: "USD", to: "EUR", amount: 100, result: 92.5, rate: 0.925),
+                ConversionHistoryEntry(from: "EUR", to: "GBP", amount: 50, result: 42.8, rate: 0.856)
+            ],
+            searchText: "",
+            onResetSearch: {},
+            onSelect: { _ in },
+            onDelete: { _ in }
+        )
+    }
+}
+
+#Preview("Empty State") {
+    NavigationStack {
+        HistoryListView(
+            conversions: [],
+            searchText: "",
+            onResetSearch: {},
+            onDelete: { _ in }
+        )
+    }
+}
+
+#Preview("Accessibility Text Size") {
+    NavigationStack {
+        HistoryListView(
+            conversions: [
+                ConversionHistoryEntry(from: "USD", to: "EUR", amount: 1250000, result: 1156250, rate: 0.925)
+            ],
+            searchText: "",
+            onResetSearch: {},
+            onSelect: { _ in },
+            onDelete: { _ in }
+        )
+    }
+    .environment(\.dynamicTypeSize, .accessibility3)
 }

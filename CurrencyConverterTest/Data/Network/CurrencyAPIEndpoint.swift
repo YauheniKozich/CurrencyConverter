@@ -25,6 +25,16 @@ struct CurrencyAPIEndpoint: Sendable {
     }
 
     /// Создаёт эндпоинт для получения списка валют
+    /// Создаёт эндпоинт для проверки статуса и валидности API ключа
+    static func status(apiKey: String, baseURL: URL = ConfigurationDefaults.defaultBaseURL) -> CurrencyAPIEndpoint {
+        CurrencyAPIEndpoint(
+            baseURL: baseURL,
+            path: "v3/status",
+            queryItems: [],
+            apiKey: apiKey
+        )
+    }
+
     static func currencies(apiKey: String, baseURL: URL) -> CurrencyAPIEndpoint {
         CurrencyAPIEndpoint(
             baseURL: baseURL,

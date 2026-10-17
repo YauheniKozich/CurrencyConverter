@@ -15,7 +15,7 @@ struct CurrencyResponse: Decodable {
     let data: [String: Currency]
 }
 
-struct Currency: Decodable {
+struct Currency: Codable, Sendable {
     let code: String
     let name: String
     
@@ -32,7 +32,13 @@ struct Currency: Decodable {
         case title
     }
 
-    init(from decoder: Decoder) throws {
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(code, forKey: .code)
+        try container.encode(name, forKey: .name)
+    }
+
+    init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
         code = try container.decode(String.self, forKey: .code)

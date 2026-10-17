@@ -7,14 +7,22 @@
 
 import Foundation
 
+// MARK: - API Error Response DTO
+
+struct CurrencyAPIErrorDTO: Decodable, Sendable {
+    let message: String?
+    let errors: [String: [String]]?
+}
+
 // MARK: - Network Error
 
 enum NetworkError: Error, Sendable {
     case invalidResponse
     case invalidURL
     case statusCodeError(Int)
+    case apiError(statusCode: Int, message: String)
     case decodingError(String)
-    case networkUnavailable(Error)
+    case networkUnavailable(any Error)
 }
 
 // MARK: - Network Service
@@ -78,6 +86,18 @@ final class NetworkService: Sendable {
             }
 
             guard (200...299).contains(httpResponse.statusCode) else {
+                if let apiError = try? JSONDecoder().decode(CurrencyAPIErrorDTO.self, from: data) {
+                    var detail = apiError.message ?? ""
+                    if let fieldErrors = apiError.errors {
+                        let combined = fieldErrors.values.flatMap { $0 }.joined(separator: ", ")
+                        if !combined.isEmpty {
+                            detail = detail.isEmpty ? combined : "\(detail): \(combined)"
+                        }
+                    }
+                    if !detail.isEmpty {
+                        throw NetworkError.apiError(statusCode: httpResponse.statusCode, message: detail)
+                    }
+                }
                 throw NetworkError.statusCodeError(httpResponse.statusCode)
             }
 

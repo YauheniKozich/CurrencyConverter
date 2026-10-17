@@ -10,6 +10,7 @@ import SwiftData
 
 // MARK: - Dependencies
 
+@MainActor
 protocol Dependencies {
     var config: AppConfiguration { get }
     var database: ModelContainer { get }
@@ -19,14 +20,37 @@ protocol Dependencies {
     func networking() -> NetworkService
 }
 
+@MainActor
 final class AppDependencies: Dependencies {
 
     let config: AppConfiguration
     let database: ModelContainer
 
     private var networkService: NetworkService?
-    private var repository: CurrencyRepository?
+    private var repository: (any CurrencyRepository)?
     private var conversionHistoryActor: ConversionHistoryActor?
+
+    // MARK: - Shared Instance
+
+    @MainActor
+    private static var _shared: AppDependencies?
+
+    @MainActor
+    static var shared: AppDependencies {
+        get throws {
+            if let existing = _shared {
+                return existing
+            }
+            let newInstance = try AppDependencies()
+            _shared = newInstance
+            return newInstance
+        }
+    }
+
+    @MainActor
+    static func setShared(_ dependencies: AppDependencies) {
+        _shared = dependencies
+    }
 
     // MARK: - Initialization
 
@@ -95,6 +119,18 @@ final class AppDependencies: Dependencies {
         let actor = try historyActor()
         let historyUseCase = ConversionHistoryUseCase(historyActor: actor)
         return HistoryViewModel(historyUseCase: historyUseCase)
+    }
+
+    @MainActor
+    func createConversionUseCase() throws -> any CurrencyConversionUseCaseProtocol {
+        let repository = try createRepository()
+        return CurrencyConversionUseCase(repository: repository)
+    }
+
+    @MainActor
+    func createSaveHistoryUseCase() throws -> any SaveConversionHistoryUseCaseProtocol {
+        let actor = try historyActor()
+        return SaveConversionHistoryUseCase(historyActor: actor)
     }
 
     @MainActor

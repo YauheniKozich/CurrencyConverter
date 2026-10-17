@@ -20,7 +20,7 @@ final class CurrencyAPIRepository: CurrencyRepository, @unchecked Sendable {
 
     // MARK: - Initialization
 
-    init(localDataSource: LocalCurrencyDataSource,
+    init(localDataSource: any LocalCurrencyDataSource,
          networkService: NetworkService,
          apiKey: String,
          apiBaseURL: URL,
@@ -47,21 +47,27 @@ final class CurrencyAPIRepository: CurrencyRepository, @unchecked Sendable {
         let apiBaseURL = self.apiBaseURL
         let networkService = self.networkService
 
-        return try await cacheManager.getCurrencies(
-            load: {
-                let endpoint = CurrencyAPIEndpoint.currencies(
-                    apiKey: apiKey,
-                    baseURL: apiBaseURL
-                )
+        do {
+            return try await cacheManager.getCurrencies(
+                load: {
+                    let endpoint = CurrencyAPIEndpoint.currencies(
+                        apiKey: apiKey,
+                        baseURL: apiBaseURL
+                    )
 
-                let data = try await networkService.request(endpoint)
-                let decoded: CurrencyResponse = try networkService.decode(data)
+                    let data = try await networkService.request(endpoint)
+                    let decoded: CurrencyResponse = try networkService.decode(data)
 
-                Logger.log("Загружено валют: \(decoded.data.count)", level: .info)
-                return decoded.data
-            },
-            forceRefresh: false
-        )
+                    Logger.log("Загружено валют: \(decoded.data.count)", level: .info)
+                    return decoded.data
+                },
+                forceRefresh: false
+            )
+        } catch let networkError as NetworkError {
+            throw networkError.appError
+        } catch let urlError as URLError {
+            throw urlError.appError
+        }
     }
 
     func refreshSupportedCurrencies() async throws -> [String: Currency] {
@@ -69,26 +75,32 @@ final class CurrencyAPIRepository: CurrencyRepository, @unchecked Sendable {
         let apiBaseURL = self.apiBaseURL
         let networkService = self.networkService
 
-        return try await cacheManager.getCurrencies(
-            load: {
-                let endpoint = CurrencyAPIEndpoint.currencies(
-                    apiKey: apiKey,
-                    baseURL: apiBaseURL
-                )
+        do {
+            return try await cacheManager.getCurrencies(
+                load: {
+                    let endpoint = CurrencyAPIEndpoint.currencies(
+                        apiKey: apiKey,
+                        baseURL: apiBaseURL
+                    )
 
-                let data = try await networkService.request(endpoint)
-                let decoded: CurrencyResponse = try networkService.decode(data)
+                    let data = try await networkService.request(endpoint)
+                    let decoded: CurrencyResponse = try networkService.decode(data)
 
-                Logger.log("Загружено валют: \(decoded.data.count)", level: .info)
-                return decoded.data
-            },
-            forceRefresh: true
-        )
+                    Logger.log("Загружено валют: \(decoded.data.count)", level: .info)
+                    return decoded.data
+                },
+                forceRefresh: true
+            )
+        } catch let networkError as NetworkError {
+            throw networkError.appError
+        } catch let urlError as URLError {
+            throw urlError.appError
+        }
     }
 
     func convert(from: String, to: String, amount: Double) async throws -> ConversionResult {
         if let cachedRate = try await cacheManager.getCachedRate(from: from, to: to) {
-            return ConversionResult(result: amount * cachedRate, rate: cachedRate)
+            return ConversionResult(result: amount * cachedRate, rate: cachedRate, isStaleRate: false)
         }
 
         do {
@@ -101,12 +113,19 @@ final class CurrencyAPIRepository: CurrencyRepository, @unchecked Sendable {
 
             if appError.isRecoverable,
                let staleRate = try? await cacheManager.getStaleCachedRate(from: from, to: to) {
-                return ConversionResult(result: amount * staleRate, rate: staleRate)
+                Logger.log("Использован сохранённый курс \(from)/\(to) как офлайн fallback", level: .warning)
+                return ConversionResult(result: amount * staleRate, rate: staleRate, isStaleRate: true)
             }
 
             throw appError
         } catch {
             Logger.log("Неизвестная ошибка конвертации: \(error)", level: .error)
+
+            if let staleRate = try? await cacheManager.getStaleCachedRate(from: from, to: to) {
+                Logger.log("Использован сохранённый курс \(from)/\(to) как офлайн fallback", level: .warning)
+                return ConversionResult(result: amount * staleRate, rate: staleRate, isStaleRate: true)
+            }
+
             throw AppError.unknown(error)
         }
     }
@@ -135,7 +154,7 @@ final class CurrencyAPIRepository: CurrencyRepository, @unchecked Sendable {
 
             await cacheManager.saveRate(from: from, to: to, rate: rate)
 
-            return ConversionResult(result: amount * rate, rate: rate)
+            return ConversionResult(result: amount * rate, rate: rate, isStaleRate: false)
         } catch let networkError as NetworkError {
             throw networkError.appError
         }

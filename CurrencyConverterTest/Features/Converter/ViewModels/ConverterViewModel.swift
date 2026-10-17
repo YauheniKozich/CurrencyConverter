@@ -34,6 +34,8 @@ final class ConverterViewModel {
     private(set) var amount: String = ""
     private(set) var result: String = ""
     private(set) var rate: String = ""
+    private(set) var inverseRate: String = ""
+    private(set) var isOfflineRate: Bool = false
     private(set) var errorMessage: String?
     private(set) var isConverting: Bool = false
 
@@ -59,11 +61,21 @@ final class ConverterViewModel {
         "\(amount) \(fromCurrency) = \(result) \(toCurrency)"
     }
 
+    var directRateText: String {
+        guard !rate.isEmpty else { return "" }
+        return "1 \(fromCurrency) = \(rate) \(toCurrency)"
+    }
+
+    var inverseRateText: String {
+        guard !inverseRate.isEmpty else { return "" }
+        return "1 \(toCurrency) = \(inverseRate) \(fromCurrency)"
+    }
+
     private let conversionService: ConversionService
     private let conversionFormatting: any ConversionFormatting
     private let loadCurrenciesUseCase: any LoadCurrenciesUseCaseProtocol
     private let numberFormatter: any NumberFormatting
-    private let preferences: UserPreferences
+    private let preferences: any UserPreferencesProtocol
 
     private var convertTask: Task<Void, Never>?
     private var conversionRequestID = 0
@@ -74,7 +86,7 @@ final class ConverterViewModel {
         loadCurrenciesUseCase: any LoadCurrenciesUseCaseProtocol,
         saveConversionHistoryUseCase: any SaveConversionHistoryUseCaseProtocol,
         numberFormatter: any NumberFormatting,
-        preferences: UserPreferences = UserPreferences()
+        preferences: any UserPreferencesProtocol = UserPreferences()
     ) {
         let preferences = preferences
         self.conversionService = ConversionService(
@@ -94,6 +106,28 @@ final class ConverterViewModel {
         amount = normalizeAmount(newAmount)
         errorMessage = nil
         errorType = .unknown
+    }
+
+    func applyHistoryEntry(_ entry: ConversionHistoryEntry) {
+        fromCurrency = entry.from
+        toCurrency = entry.to
+        let formattedAmount: String
+        if entry.amount.truncatingRemainder(dividingBy: 1) == 0 {
+            formattedAmount = String(Int(entry.amount))
+        } else {
+            formattedAmount = numberFormatter.format(entry.amount, decimals: 2)
+        }
+        setAmount(formattedAmount)
+        convert()
+    }
+
+    func swapCurrencies() {
+        let temp = fromCurrency
+        fromCurrency = toCurrency
+        toCurrency = temp
+        if isValidAmount {
+            convert()
+        }
     }
 
     func clearError() {
@@ -145,6 +179,8 @@ final class ConverterViewModel {
 
             result = conversionFormatting.formatResult(conversion.result)
             rate = conversionFormatting.formatRate(conversion.rate)
+            inverseRate = conversion.rate > 0 ? conversionFormatting.formatRate(1.0 / conversion.rate) : ""
+            isOfflineRate = conversion.isStaleRate
             errorMessage = nil
             errorType = .unknown
 
@@ -154,6 +190,8 @@ final class ConverterViewModel {
             errorType = .validation
             result = ""
             rate = ""
+            inverseRate = ""
+            isOfflineRate = false
 
         } catch let appError as AppError {
             guard !Task.isCancelled, requestID == conversionRequestID else { return }
@@ -166,6 +204,8 @@ final class ConverterViewModel {
 
             result = ""
             rate = ""
+            inverseRate = ""
+            isOfflineRate = false
 
         } catch {
             guard !Task.isCancelled, requestID == conversionRequestID else { return }
@@ -174,6 +214,8 @@ final class ConverterViewModel {
             Logger.log("Unknown conversion error: \(error)", level: .error)
             result = ""
             rate = ""
+            inverseRate = ""
+            isOfflineRate = false
         }
     }
 

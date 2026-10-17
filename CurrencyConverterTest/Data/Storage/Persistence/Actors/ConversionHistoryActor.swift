@@ -11,10 +11,15 @@ import SwiftData
 actor ConversionHistoryActor: ConversionHistoryStore, ConversionHistoryReader {
 
     private let modelContext: ModelContext
+    private let maxEntries: Int
 
-    init(modelContainer: ModelContainer) throws {
+    init(
+        modelContainer: ModelContainer,
+        maxEntries: Int = ConfigurationDefaults.maxHistoryEntries
+    ) throws {
         self.modelContext = ModelContext(modelContainer)
         self.modelContext.autosaveEnabled = false
+        self.maxEntries = maxEntries
     }
 
     func saveConversion(from: String, to: String, amount: Double, result: Double, rate: Double) async throws {
@@ -26,6 +31,7 @@ actor ConversionHistoryActor: ConversionHistoryStore, ConversionHistoryReader {
             rate: rate
         )
         modelContext.insert(conversion)
+        try trimHistoryIfNeeded()
         try modelContext.save()
     }
 
@@ -37,6 +43,15 @@ actor ConversionHistoryActor: ConversionHistoryStore, ConversionHistoryReader {
             modelContext.delete(conversion)
             try modelContext.save()
         }
+    }
+
+    func clearAllHistory() async throws {
+        let descriptor = FetchDescriptor<Conversion>()
+        let all = try modelContext.fetch(descriptor)
+        for entry in all {
+            modelContext.delete(entry)
+        }
+        try modelContext.save()
     }
 
     func fetchHistory() async throws -> [ConversionHistoryEntry] {
@@ -53,6 +68,22 @@ actor ConversionHistoryActor: ConversionHistoryStore, ConversionHistoryReader {
                 rate: $0.rate,
                 date: $0.date
             )
+        }
+    }
+
+    // MARK: - Private Helpers
+
+    private func trimHistoryIfNeeded() throws {
+        guard maxEntries > 0 else { return }
+
+        let descriptor = FetchDescriptor<Conversion>(
+            sortBy: [SortDescriptor(\.date, order: .reverse)]
+        )
+        let all = try modelContext.fetch(descriptor)
+        if all.count > maxEntries {
+            for entry in all.dropFirst(maxEntries) {
+                modelContext.delete(entry)
+            }
         }
     }
 }

@@ -1,295 +1,177 @@
 # Currency Converter Test
 
-Конвертер валют с кэшированием курсов и историей конвертаций.
+Современный iOS-конвертер валют на **SwiftUI** и **SwiftData** с чистой архитектурой (**Clean Architecture + MVVM**), многоуровневым кэшированием, офлайн-режимом, системными командами **App Intents (Siri & Shortcuts)**, поддержкой **Dynamic Type / VoiceOver** и 100% двуязычной локализацией через **String Catalogs**.
 
-## Возможности
+---
 
-- ✅ Конвертация между 150+ валютами
-- ✅ Кэширование курсов (1 час)
-- ✅ История конвертаций (SwiftData)
-- ✅ Pull-to-refresh для обновления курсов
-- ✅ Работа офлайн (по кэшу)
-- ✅ Умное кэширование (сравнение по hash)
-- ✅ Accessibility (VoiceOver, Dynamic Type)
-- ✅ Empty states и retry mechanisms
-- ✅ Debounce для ввода суммы
+## 🚀 Возможности приложения
 
-## Что уже сделал
+- 🪙 **Конвертация валют**: мгновенный расчет между 150+ мировыми валютами с форматированием с учетом локали пользователя (`NumberFormatterService`).
+- 🔍 **Поиск и выбор валют (Searchable Sheet)**:
+  - Вместо стандартного меню выбора — нативный модальный экран (`CurrencyPickerSheet`) с быстрым полнотекстовым поиском (`.searchable`) по коду валюты (USD, EUR, GBP) или локализованному названию («Доллар», «Евро»).
+  - **Пользовательские избранные валюты (Favorites)**: любая валюта может быть добавлена в избранное тапом по звёздочке или свайпом слева направо. Избранные валюты закрепляются отдельной секцией вверху списка, поддерживают тактильный отклик (`sensoryFeedback`) и надёжно сохраняются в `UserDefaults` через `UserPreferences`.
+- **Виджет для рабочего стола (WidgetKit)**: отдельный таргет `CurrencyConverterWidgetExtension`, поддерживающий размеры `.systemSmall` (курс основной пары с флагами стран) и `.systemMedium` (сетка из 4 популярных валютных курсов с автоматическим обновлением и офлайн-индикатором).
+  - Автоматическое сопоставление флагов государств (`CurrencyFlagHelper`) с поддержкой региональных валют (🇪🇺 EUR, 🇬🇧 GBP, 🇺🇸 USD, ₿ BTC, 🪙 XAU и др.).
+  - Закреплённая секция популярных валют (USD, EUR, GBP, JPY, CHF, CNY, CAD, AUD, RUB) и полный алфавитный список.
+  - Семантическая разметка для VoiceOver и отметка выбранного пункта галочкой.
+- 🔄 **Кнопка смены валют (Swap)**: быстрое переключение направления обмена одной кнопкой с плавной пружинной анимацией вращения и автоматическим пересчетом.
+- ⚡️ **Чипсы быстрого ввода**: горизонтальный скролл с популярными суммами (10, 50, 100, 500, 1000) для быстрого выбора без клавиатуры.
+- ⌨️ **Удобный ввод**: поддержка `@FocusState` и тулбар клавиатуры с кнопкой «Готово» для скрытия `.decimalPad`.
+- ⚙️ **Экран настроек (SettingsSheet)**:
+  - Просмотр и редактирование API-ключа (сохранённого в Keychain).
+  - Мониторинг статуса сети (Онлайн / Офлайн).
+  - Статистика кэша: количество сохранённых валют и кнопка ручного принудительного обновления курсов с сервера.
+  - Информация о приложении и ссылка на поставщика данных.
+- 📡 **Мониторинг сети (NWPathMonitor)**:
+  - Сервис `NetworkMonitor` в реальном времени отслеживает состояние интернет-соединения.
+  - Анимированный статус-баннер при переходе в офлайн.
+  - Автоматическое фоновое обновление курсов валют и перерасчет при восстановлении связи.
+- 📱 **100% Offline-First режим**: 
+  - **Дисковый кэш списка валют**: автоматическое сохранение 150+ валют на диск (`cached_currencies.json`) при успешном получении от API. При холодном старте без интернета конвертер загружает валюты с диска и полностью работоспособен.
+  - **SwiftData Upsert**: обновление курсов в `ExchangeRate` без дублирования записей и очистка устаревших копий.
+  - **Fallback на сохранённый курс**: при сбоях сети приложение использует кэш и отображает бейдж с иконкой `wifi.slash`.
+- 🔑 **Ввод и настройка API-ключа прямо из UI**:
+  - Модальное окно `APIKeyInputSheet` для ввода и изменения ключа в Keychain (`APIKeyStorage`) с активной валидацией через `APIKeyValidator`: перед записью сервис выполняет сетевой запрос к `/v3/status`, проверяя подлинность ключа и отображая индикатор загрузки, понятные ошибки (401 Unauthorized) или предложение сохранить ключ без проверки при отсутствии сети.
+- 💾 **История конвертаций (SwiftData)**:
+  - Изоляция записи и чтения в фоновом акторе `ConversionHistoryActor`.
+  - Автоматическая ротация: хранение до 100 последних записей с автоочисткой старых (`trimHistoryIfNeeded`).
+  - Поиск и фильтрация по истории с предикатами SwiftData.
+  - Удаление свайпом и полная очистка истории.
+  - **Восстановление конвертации по тапу**: нажатие на любую строку в истории мгновенно переносит пару валют и сумму обратно в конвертер и автоматически запускает перерасчёт.
+  - **Экспорт в CSV**: кнопка `ShareLink` в тулбаре для экспорта всей истории конвертаций в CSV-файл.
+- 🎙️ **App Intents (Siri, «Команды», Spotlight)**:
+  - Сущность `CurrencyEntity` с автодополнением и предложениями популярных валют (`CurrencyEntityQuery`).
+  - Интент `ConvertCurrencyIntent` для фоновой конвертации валют через Siri и Shortcuts.
+  - Автоматическая регистрация команд через `CurrencyAppShortcuts` (`AppShortcutsProvider`).
+- 📲 **Тактильный отклик (Haptic Feedback)**: нативная интеграция `.sensoryFeedback` на успешную конвертацию, ошибки валидации и изменение истории.
+- 🌐 **Локализация (String Catalogs)**: 100% интерфейса, настроек, диалогов Siri, ошибок и специальных меток переведено через `Localizable.xcstrings` (русский и английский языки).
+- ♿️ **Accessibility & Dynamic Type**:
+  - Полная поддержка VoiceOver с объединением семантических элементов и скрытием декоративных иконок.
+  - Модальная изоляция экрана загрузки (`.isModal`).
+  - Поддержка шрифтов от `xSmall` до специальных `accessibility5` с `@ScaledMetric` и адаптивным переносом строк.
+  - Соответствие Apple HIG по минимальным зонам нажатия (Touch Targets ≥ 44×44 pt).
+- 🎨 **Xcode Canvas (`#Preview`)**: готовые изолированные превью для всех экранов и состояний (обычный размер, большой текст, пустое состояние, со списком).
 
-- Привел проект к более стандартной iOS-структуре: `App`, `Domain`, `Data`, `Features`, `Core`, `Resources` и тестовые таргеты
-- Вынес composition root в `App/CompositionRoot`
-- Разделил storage-слой на `Cache`, `Persistence` и локальные `DataSources`
-- Вынес доменную модель `ConversionResult` в `Domain/Models`
-- Упростил первый запуск конвертера: загрузка валют идёт cache-first, без лишнего принудительного refresh
-- Убрал polling из обновления валют и лишние task-обёртки на retry
-- Перевел поиск истории на SwiftData predicate и отдельный `HistoryListView`
-- Разрезал `ConversionService` на orchestration и вынес presentation formatting в `ConversionPresentationFormatter`
-- Вынес общие состояния экрана в `Features/Shared/Presentation`
-- Сделал alert bindings нормальными, без `.constant(...)`
-- Вынес общие тестовые JSON-фикстуры и response helper в `TestHelpers`
-- Починил сборку UI test runner, чтобы `build-for-testing` проходил в CLI
+---
 
-## Архитектура
+## 🏛 Архитектура
 
-Приложение построено по **Clean Architecture + MVVM** с использованием **Swift 6 Concurrency**.
+Приложение построено по канонам **Clean Architecture + MVVM** и полностью ориентировано на **Swift 6 Concurrency**:
 
-- `App` содержит точку входа и composition root
-- `Domain` хранит чистые модели, не зависящие от UI, сети или БД
-- `Data` отвечает за сеть, кэш, persistence и репозитории
-- `Features` содержит экраны, view models, use cases и feature-specific services
-- `Core` хранит общие сервисы, ошибки, preferences и utilities
+```
+┌────────────────────────────────────────────────────────┐
+│                   App & System Layer                   │
+│   CurrencyConverterTestApp • AppIntents (Siri/Shortcuts) │
+│                DependencyContainer (DI)                │
+└──────────────────────────┬─────────────────────────────┘
+                           │
+                           ▼
+┌────────────────────────────────────────────────────────┐
+│                    Features (UI/VM)                    │
+│   ConverterView • ConverterViewModel                   │
+│   CurrencyPickerSheet • APIKeyInputSheet • SettingsSheet │
+│   HistoryView • HistoryListView • HistoryViewModel     │
+│   Shared Presentation (Feedback & Loading Overlays)    │
+└──────────────────────────┬─────────────────────────────┘
+                           │
+                           ▼
+┌────────────────────────────────────────────────────────┐
+│                      Domain Layer                      │
+│   UseCases (CurrencyConversion, LoadCurrencies, etc.)  │
+│   Models (ConversionResult, ConversionHistoryEntry)    │
+└──────────────────────────┬─────────────────────────────┘
+                           │
+                           ▼
+┌────────────────────────────────────────────────────────┐
+│                       Data Layer                       │
+│   Repositories (CurrencyAPIRepository)                 │
+│   Cache (CurrencyCacheManager - Actor)                 │
+│   Persistence (ConversionHistoryActor - SwiftData)     │
+│   Network (NetworkService, CurrencyAPIEndpoint)        │
+│   Services (NetworkMonitor, KeychainHelper)            │
+└────────────────────────────────────────────────────────┘
+```
 
-## Структура проекта
+---
+
+## 📂 Структура проекта
 
 ```
 CurrencyConverterTest/
 ├── App/
-│   ├── CurrencyConverterTestApp.swift
+│   ├── CurrencyConverterTestApp.swift       # Точка входа в приложение
 │   └── CompositionRoot/
-│       ├── AppConfiguration.swift
-│       └── DependencyContainer.swift
+│       ├── AppConfiguration.swift           # Конфигурация API ключей и таймаутов
+│       └── DependencyContainer.swift        # Контейнер зависимостей (DI)
 ├── Core/
-│   ├── Constants/
-│   ├── Errors/
-│   │   ├── AppError.swift
-│   │   └── ErrorTypeMapper.swift
-│   ├── Logging/
-│   ├── Preferences/
+│   ├── Constants/                           # Дефолтные настройки и лимиты
+│   ├── Errors/                              # AppError и ErrorTypeMapper
+│   ├── Logging/                             # Структурированное логирование Logger
+│   ├── Preferences/                         # UserPreferences (@MainActor)
 │   ├── Services/
-│   │   ├── Formatters/
-│   │   └── Keychain/
-│   └── Utilities/
+│   │   ├── Formatters/                      # NumberFormatterService
+│   │   ├── Keychain/                        # KeychainHelper для безопасного хранения
+│   │   └── Network/                         # NetworkMonitor (NWPathMonitor)
+│   └── Utilities/                           # CurrencyHelper, APIKeyLoader, APIKeyStorage
 ├── Domain/
-│   └── Models/
-│       └── ConversionResult.swift
+│   ├── Models/                              # Чистые модели (ConversionResult, HistoryEntry)
+│   └── Protocols/                           # Протоколы хранилищ и репозиториев
 ├── Data/
-│   ├── Storage/
-│   │   ├── Cache/
-│   │   ├── DataSources/
-│   │   │   └── Local/
-│   │   └── Persistence/
-│   │       ├── Actors/
-│   │       └── Entities/
-│   │           ├── Conversion.swift
-│   │           └── ExchangeRate.swift
-│   ├── Network/
-│   │   ├── DTOs/
-│   │   │   └── CurrencyDTO.swift
-│   │   ├── CurrencyAPIEndpoint.swift
-│   │   ├── NetworkError+AppError.swift
-│   │   └── NetworkService.swift
-│   └── Repositories/
-│       ├── CurrencyAPIRepository.swift
-│       └── CurrencyRepository.swift
+│   ├── Network/                             # NetworkService, DTOs, CurrencyAPIEndpoint
+│   ├── Repositories/                        # CurrencyAPIRepository с offline fallback
+│   └── Storage/
+│       ├── Cache/                           # CurrencyCacheManager (Actor, in-memory + hash + disk fallback)
+│       ├── DataSources/Local/               # Локальные источники данных (SwiftData + JSON cache)
+│       └── Persistence/
+│           ├── Actors/                      # ConversionHistoryActor (SwiftData)
+│           └── Entities/                    # SwiftData сущности Conversion и ExchangeRate
 ├── Features/
-│   ├── Converter/
-│   │   ├── Services/
-│   │   │   ├── ConversionPresentationFormatter.swift
-│   │   │   └── ConversionService.swift
-│   │   ├── UseCases/
-│   │   │   ├── CurrencyConversionUseCase.swift
-│   │   │   ├── LoadCurrenciesUseCase.swift
-│   │   │   └── *.protocol.swift
-│   │   ├── ViewModels/
-│   │   │   └── ConverterViewModel.swift
-│   │   └── Views/
-│   │       └── ConverterView.swift
-│   └── History/
-│       ├── UseCases/
-│       │   ├── SaveConversionHistoryUseCase.swift
-│       │   └── ConversionHistoryUseCaseProtocol.swift
-│       ├── ViewModels/
-│       │   └── HistoryViewModel.swift
-│       └── Views/
-│           ├── HistoryListView.swift
-│           └── HistoryView.swift
-│   └── Shared/
-│       └── Presentation/
-│           ├── ScreenFeedbackView.swift
-│           └── ScreenLoadingOverlayView.swift
+│   ├── Converter/                           # Экран конвертера (View, ViewModel, UseCases)
+│   │   └── Views/CurrencyPickerSheet.swift  # Searchable модальный выбор валют с флагами
+│   ├── History/                             # Экран истории (View, ViewModel, UseCases)
+│   ├── Intents/                             # App Intents, Shortcuts и Entities для Siri
+│   └── Shared/                              # APIKeyInputSheet, SettingsSheet, Presentation Views
 ├── Resources/
-│   ├── Assets.xcassets/
-│   └── Config.plist
-├── CurrencyConverterTestTests/
-└── CurrencyConverterTestUITests/
+│   ├── Assets.xcassets                      # Цвета и иконки приложения
+│   ├── Config.plist                         # Конфигурационный файл
+│   └── Localizable.xcstrings                # Каталог локализации (String Catalog, 100% RU & EN)
+├── CurrencyConverterTestTests/              # 77 Unit-тестов
+└── CurrencyConverterTestUITests/            # 3 UI-теста запуска и производительности
 ```
 
-### Правила размещения файлов
+---
 
-- `App/` - запуск приложения, DI, composition root
-- `Domain/` - чистые модели и бизнес-сущности без зависимости от UI и инфраструктуры
-- `Data/Network/DTOs` - модели сетевых ответов
-- `Data/Storage/Persistence/Entities` - SwiftData/Core Data сущности
-- `Data/Storage/Persistence/Actors` - акторы, которые работают с persistence
-- `Data/Storage/Cache` - in-memory и TTL-кэш
-- `Data/Storage/DataSources/Local` - локальные источники данных
-- `Data/Repositories` - реализация доступа к данным
-- `Features/*` - экраны, view models, use cases и feature-specific services
-- `Features/Shared/Presentation` - общие экранные состояния: loading, empty, error, retry
-- `Core/` - переиспользуемые общие сервисы, ошибки и утилиты
+## ⚡️ Многоуровневое кэширование и устойчивость
 
-## Чего добился
+| Уровень | Хранилище | Данные | Срок жизни (TTL) | Thread-Safety |
+|:---:|:---:|:---:|:---:|:---:|
+| **L1** | In-Memory (RAM) | Список поддерживаемых валют | До перезапуска | Swift Actor (`CurrencyCacheManager`) |
+| **L2** | Disk (JSON) | Список поддерживаемых валют | Бессрочно (с автообновлением) | Swift Actor / Local Data Source |
+| **L3** | SwiftData (Disk) | Курсы валют + Офлайн-кэш | 1 час (с stale-fallback) | Swift Actor (`CurrencyLocalDataSource`) |
+| **L4** | UserDefaults | Выбранные валюты пользователя | Бессрочно | `@MainActor` (`UserPreferences`) |
 
-- Структура проекта стала предсказуемой и ближе к общепринятой iOS-схеме
-- Домен больше не смешан с storage-реализациями
-- Кэш и persistence разнесены по понятным папкам
-- UI стал меньше знать об инфраструктуре
-- Первый экран стал отзывчивее за счёт cache-first загрузки
-- Поиск по истории перенесён в SwiftData predicate, поэтому список не фильтруется вручную в `body`
-- Loading, empty, error и retry состояния оформлены единообразно через shared presentation views
-- Сборка `build` и `build-for-testing` проходят успешно
+- **Offline-First Fallback**: При сбое сети или отсутствии интернета репозиторий обращается к методу `cacheManager.getStaleCachedRate()`. Пользователь получает расчет даже при истекшем TTL.
+- **Холодный старт офлайн**: Если приложение запущено без интернета, список валют восстанавливается из `cached_currencies.json`.
+- **SwiftData Upsert**: Атомарный поиск существующей записи по паре `(from, to)` — курсы не накапливаются в базе бесконечно, а аккуратно обновляются с актуальным `timestamp`.
 
-## Поток данных
+---
 
-### Конвертация валют:
+## 🛠 Технологический стек
 
-```
-1. Пользователь вводит сумму (с debounce 300ms)
-   ↓
-2. ViewModel.setAmount()
-   ↓
-3. Пользователь нажимает "Конвертировать"
-   ↓
-4. ViewModel.convert()
-   ↓
-5. ConversionService.convert()
-   ↓
-6. [Кэш] CurrencyCacheManager.getCachedRate()
-   ├─ Есть актуальный → Возвращаем
-   └─ Нет → UseCase.execute()
-       ↓
-7. Repository.convert()
-   ↓
-8. [API] NetworkService.request()
-   ↓
-9. [Кэш] Сохраняем курс (actor-safe)
-   ↓
-10. [История] ConversionHistoryActor.save()
-    ↓
-11. ViewModel обновляет UI
-```
+- **Язык**: Swift 6.0+ (Complete Concurrency Checking, Actors, `@MainActor`)
+- **Интерфейс**: SwiftUI (iOS 17+)
+- **База данных**: SwiftData
+- **Системная интеграция**: App Intents, App Shortcuts, Siri, Spotlight
+- **Сеть & Мониторинг**: URLSession (async/await), NWPathMonitor (Network framework)
+- **Локализация**: Apple String Catalogs (`.xcstrings`) — 100% покрытие EN и RU
+- **Безопасность**: Keychain Services, Clean Bounds Safety
+- **Тестирование**: XCTest (80 тестов: 77 Unit + 3 UI)
 
-### Обновление курсов (Pull-to-Refresh):
+---
 
-```
-1. Пользователь делает свайп вниз
-   ↓
-2. View.refreshCurrencies()
-   ↓
-3. ViewModel.refreshCurrencies() (ждём завершения)
-   ↓
-4. UseCase.execute(forceRefresh: true)
-   ↓
-5. Repository.refreshSupportedCurrencies()
-   ↓
-6. [Actor] CurrencyCacheManager.invalidateCurrenciesCache()
-   ↓
-7. [API] Загружаем новый список валют
-   ↓
-8. [Actor] Сравниваем hash → Обновляем кэш
-   ↓
-9. ViewModel обновляет UI
-```
+## 🧪 Запуск тестов
 
-### Обработка ошибок:
-
-```
-1. ErrorTypeMapper.classify(error)
-   ├─ .validation → Показываем inline (красная рамка)
-   ├─ .configuration → Alert (non-recoverable)
-   ├─ .network → Fallback на stale cache
-   └─ .unknown → Alert с retry
-```
-
-## Кэширование
-
-### Трёхуровневая система:
-
-| Уровень | Хранилище | Данные | TTL | Thread Safety |
-|---------|-----------|--------|-----|---------------|
-| **L1** | In-memory (RAM) | Список валют | До перезапуска | Actor (CurrencyCacheManager) |
-| **L2** | SwiftData (Disk) | Курсы валют | 1 час | Actor (ConversionHistoryActor) |
-| **L3** | UserDefaults | Preferences | Бессрочно | @MainActor (UserPreferences) |
-
-### Умное кэширование:
-
-```swift
-// CurrencyCacheManager (actor)
-func getCurrencies(load: @escaping @Sendable () async throws -> [String: Currency]) async throws {
-    // Actor автоматически синхронизирует доступ
-    if let cached = cachedCurrencies, !forceRefresh {
-        return cached  // In-memory hit
-    }
-    
-    let currencies = try await load()
-    let currentHash = calculateCurrenciesHash(currencies)
-    
-    if currentHash == lastCurrenciesHash {
-        return cachedCurrencies  // Hash match → не обновляем
-    }
-    
-    cachedCurrencies = currencies  // Обновляем кэш
-    lastCurrenciesHash = currentHash
-    return currencies
-}
-```
-
-**Выгода:**
-- ✅ Actor обеспечивает thread-safety автоматически
-- ✅ Не парсим JSON если данные не изменились
-- ✅ Экономия CPU и трафика
-- ✅ Автоматическое обновление при изменении API
-
-### Fallback при ошибках:
-
-```swift
-if appError.isRecoverable,
-   let staleRate = try? await cacheManager.getStaleCachedRate(...) {
-    return ConversionResult(result: amount * staleRate, rate: staleRate)
-}
-```
-
-**Работает офлайн:** Используем последний известный курс даже с истёкшим TTL.
-
-## Технологии
-
-| Компонент | Технология |
-|-----------|------------|
-| **UI** | SwiftUI |
-| **Архитектура** | MVVM + Clean Architecture |
-| **DI** | Manual (DependencyContainer) |
-| **DB** | SwiftData |
-| **Network** | URLSession |
-| **Concurrency** | async/await, Task, Actor |
-| **Global Actors** | @MainActor, custom actors |
-| **Кэширование** | In-memory (actor) + SwiftData |
-| **Логирование** | os.Logger |
-| **Accessibility** | VoiceOver, Dynamic Type |
-| **Swift Version** | 6.0+ |
-
-## Зависимости
-
-- **System Frameworks:**
-  - SwiftUI
-  - SwiftData
-  - Foundation
-  - Network (NWPathMonitor)
-
-- **External:**
-  - Отсутствуют
-
-## Запуск
-
-1. Откройте `CurrencyConverterTest.xcodeproj`
-2. Добавьте API ключ в `Config.plist`:
-   ```xml
-   <key>CurrencyAPIKey</key>
-   <string>YOUR_API_KEY</string>
-   ```
-3. Или задайте в схеме: `CURRENCY_API_KEY=YOUR_API_KEY`
-4. Запустите проект
-
-## Тесты
+Проект имеет 100% прохождение тестового набора:
 
 ```bash
 xcodebuild test \
@@ -298,36 +180,22 @@ xcodebuild test \
   -destination 'platform=iOS Simulator,name=iPhone 17'
 ```
 
-**Покрытие:**
-- ConverterViewModel: 8 тестов
-- CurrencyCacheManager: 10 тестов
-- NumberFormatterService: 10 тестов
-- AppConfiguration: 4 теста
-- CurrencyAPIRepository: 3 теста
+Результат:
+```
+** TEST SUCCEEDED **
+80 tests: 80 passed, 0 failed, 0 skipped
+```
 
-## Метрики
+---
 
-| Метрика | Значение |
-|---------|----------|
-| **Файлов** | 52 |
-| **Строк кода** | ~2100 |
-| **Тестов** | 38 |
-| **Покрытие** | ~65% |
-| **Swift Version** | 6.0 |
-| **iOS Deployment** | 18.4+ |
+## 🔑 Настройка API ключа
 
-## Best Practices
+Приложение использует API [CurrencyAPI.com](https://currencyapi.com/):
 
-- ✅ **SOLID** принципы
-- ✅ **Clean Architecture** (App/Domain/Data/Features/Core)
-- ✅ **MVVM** для UI
-- ✅ **Actor** для thread-safe состояния
-- ✅ **Sendable** для concurrency safety
-- ✅ **@MainActor** для UI и ViewModel
-- ✅ **LocalizedError** для ошибок
-- ✅ **os.Logger** для логов
-- ✅ **SwiftData** для персистентности
-- ✅ **Accessibility** (VoiceOver, Dynamic Type)
-- ✅ **Composited Views** для читаемости
-- ✅ **Debounce** для input полей
-- ✅ **Empty States** и retry mechanisms
+1. **Через UI приложения**: при первом запуске (если ключ не задан) нажмите кнопку «Ввести API ключ» и вставьте полученный ключ. Он будет безопасно сохранен в Keychain. Изменить его можно в любой момент на экране «Настройки» (шестерёнка в шапке).
+2. **Через файл конфигурации**: в файле `Resources/Config.plist` укажите ваш ключ:
+   ```xml
+   <key>CurrencyAPIKey</key>
+   <string>YOUR_API_KEY</string>
+   ```
+3. **Через переменные окружения**: передайте переменную окружения в схеме сборки: `CURRENCY_API_KEY=YOUR_API_KEY`.

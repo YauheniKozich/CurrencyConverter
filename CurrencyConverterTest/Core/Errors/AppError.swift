@@ -16,7 +16,11 @@ enum AppError: LocalizedError {
     // MARK: - Network (Recoverable)
     case networkUnavailable
     case networkTimeout
-    case serverError(statusCode: Int)
+    case serverError(statusCode: Int, message: String?)
+
+    static func serverError(statusCode: Int) -> AppError {
+        .serverError(statusCode: statusCode, message: nil)
+    }
     
     // MARK: - Data (Recoverable)
     case dataNotFound
@@ -29,7 +33,7 @@ enum AppError: LocalizedError {
     case storageError(message: String)
     
     // MARK: - Unknown (Recoverable)
-    case unknown(Error)
+    case unknown(any Error)
 }
 
 // MARK: - User-Friendly Messages
@@ -43,8 +47,24 @@ extension AppError {
             return "Нет подключения к интернету"
         case .networkTimeout:
             return "Превышено время ожидания ответа"
-        case .serverError(let code):
-            return "Ошибка сервера: код \(code)"
+        case .serverError(let code, let customMessage):
+            if let customMessage, !customMessage.isEmpty {
+                return customMessage
+            }
+            switch code {
+            case 401:
+                return "Неверный или неактивный API-ключ"
+            case 403:
+                return "Доступ к API запрещен"
+            case 422:
+                return "Некорректные параметры запроса"
+            case 429:
+                return "Превышен лимит запросов к CurrencyAPI"
+            case 500...599:
+                return "Сервер CurrencyAPI временно недоступен"
+            default:
+                return "Ошибка сервера: код \(code)"
+            }
         case .dataNotFound:
             return "Данные не найдены"
         case .invalidDataFormat:
@@ -64,8 +84,15 @@ extension AppError {
             return "Проверьте настройки приложения"
         case .networkUnavailable, .networkTimeout:
             return "Проверьте подключение к интернету и попробуйте снова"
-        case .serverError:
-            return "Попробуйте позже"
+        case .serverError(let code, _):
+            switch code {
+            case 401, 403:
+                return "Проверьте правильность введенного API-ключа в настройках"
+            case 429:
+                return "Подождите обновления квоты запросов или используйте другой API-ключ"
+            default:
+                return "Попробуйте позже"
+            }
         case .dataNotFound, .invalidDataFormat:
             return "Обратитесь в службу поддержки"
         case .validationError:
@@ -82,7 +109,10 @@ extension AppError {
         switch self {
         case .configurationError(let message):
             return "Configuration: \(message)"
-        case .serverError(let code):
+        case .serverError(let code, let message):
+            if let message {
+                return "HTTP \(code): \(message)"
+            }
             return "HTTP Status Code: \(code)"
         case .invalidDataFormat(let reason):
             return "Format error: \(reason)"

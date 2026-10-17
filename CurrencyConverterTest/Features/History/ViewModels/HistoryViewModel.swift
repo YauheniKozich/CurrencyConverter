@@ -18,6 +18,16 @@ final class HistoryViewModel {
     private(set) var isDeleting: Bool = false
     private(set) var errorMessage: String?
 
+    var csvExportString: String {
+        let header = "Date,From,To,Amount,Result,Rate\n"
+        let formatter = ISO8601DateFormatter()
+        let rows = conversions.map { entry in
+            let dateStr = formatter.string(from: entry.date)
+            return "\(dateStr),\(entry.from),\(entry.to),\(entry.amount),\(entry.result),\(entry.rate)"
+        }.joined(separator: "\n")
+        return header + rows
+    }
+
     init(historyUseCase: any ConversionHistoryUseCaseProtocol) {
         self.historyUseCase = historyUseCase
     }

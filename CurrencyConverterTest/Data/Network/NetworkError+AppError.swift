@@ -20,6 +20,14 @@ extension NetworkError {
             return .serverError(statusCode: 0)
         case .statusCodeError(let code):
             return .serverError(statusCode: code)
+        case .apiError(let code, let message):
+            if code == 401 {
+                return .configurationError(message: "Неверный API-ключ: \(message)")
+            } else if code == 422 {
+                return .validationError(message: message)
+            } else {
+                return .serverError(statusCode: code, message: message)
+            }
         case .decodingError(let reason):
             return .invalidDataFormat(reason: reason)
         case .networkUnavailable(let error):
