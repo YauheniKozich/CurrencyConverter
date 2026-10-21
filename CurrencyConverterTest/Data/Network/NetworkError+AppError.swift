@@ -15,7 +15,7 @@ extension NetworkError {
     var appError: AppError {
         switch self {
         case .invalidURL:
-            return .validationError(message: "Неверный URL адрес")
+            return .validationError(message: String(localized: "Неверный URL адрес"))
         case .invalidResponse:
             return .serverError(statusCode: 0)
         case .statusCodeError(let code):
@@ -24,7 +24,7 @@ extension NetworkError {
             if code == 401 {
                 return .configurationError(message: "Неверный API-ключ: \(message)")
             } else if code == 422 {
-                return .validationError(message: message)
+                return .validationError(message: String(localized: "Некорректные параметры запроса"))
             } else {
                 return .serverError(statusCode: code, message: message)
             }
@@ -49,7 +49,7 @@ extension URLError {
         case .timedOut:
             return .networkTimeout
         case .badURL, .unsupportedURL:
-            return .validationError(message: "Неверный URL адрес")
+            return .validationError(message: String(localized: "Неверный URL адрес"))
         case .cannotFindHost, .cannotConnectToHost:
             return .networkUnavailable
         default:

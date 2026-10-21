@@ -17,13 +17,24 @@ final class CurrencyConversionUseCase: CurrencyConversionUseCaseProtocol {
 
     func execute(from: String, to: String, amount: Double) async throws -> ConversionResult {
         guard !from.isEmpty, !to.isEmpty else {
-            throw AppError.validationError(message: "Не указаны валюты для конвертации")
+            throw AppError.validationError(message: String(localized: "Не указаны валюты для конвертации"))
         }
 
-        guard amount >= 0, !amount.isNaN else {
-            throw AppError.validationError(message: "Некорректная сумма")
+        guard amount >= 0, amount.isFinite else {
+            throw AppError.validationError(message: String(localized: "Некорректная сумма"))
         }
 
-        return try await repository.convert(from: from, to: to, amount: amount)
+        try Task.checkCancellation()
+        if from == to {
+            return ConversionResult(result: amount, rate: 1, isStaleRate: false)
+        }
+        let conversion = try await repository.convert(from: from, to: to, amount: amount)
+        try Task.checkCancellation()
+        guard conversion.result.isFinite,
+              conversion.rate.isFinite,
+              conversion.rate > 0 else {
+            throw AppError.validationError(message: String(localized: "Некорректная сумма"))
+        }
+        return conversion
     }
 }

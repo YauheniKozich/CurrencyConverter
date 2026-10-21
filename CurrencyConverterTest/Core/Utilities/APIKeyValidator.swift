@@ -61,8 +61,8 @@ final class APIKeyValidator: APIKeyValidating {
             let statusDTO = try? JSONDecoder().decode(CurrencyAPIStatusDTO.self, from: data)
             let remaining = statusDTO?.quotas?.month?.remaining
             return .valid(remainingQuota: remaining)
-        } catch let NetworkError.apiError(statusCode, message) where statusCode == 401 {
-            return .invalid(message: message.isEmpty ? String(localized: "Неверный API ключ (код 401)") : message)
+        } catch let NetworkError.apiError(statusCode, _) where statusCode == 401 {
+            return .invalid(message: String(localized: "Неверный API ключ (код 401)"))
         } catch let NetworkError.statusCodeError(statusCode) where statusCode == 401 {
             return .invalid(message: String(localized: "Неверный API ключ (код 401)"))
         } catch is CancellationError {

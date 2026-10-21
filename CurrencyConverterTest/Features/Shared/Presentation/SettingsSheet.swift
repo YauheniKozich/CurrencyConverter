@@ -11,16 +11,20 @@ struct SettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showAPIKeyInputSheet = false
     @State private var isRefreshing = false
+    @State private var refreshTask: Task<Void, Never>?
+    @State private var didSaveAPIKey = false
 
     let currenciesCount: Int
     let onRefreshCurrencies: () async -> Void
+    var onAPIKeySaved: () -> Void = {}
+    var refreshErrorMessage: String? = nil
 
     private let apiKeyStorage = APIKeyStorage()
     private let networkMonitor = NetworkMonitor.shared
 
     private var maskedAPIKey: String {
         guard let key = apiKeyStorage.load(), !key.isEmpty else {
-            return "Не задан"
+            return String(localized: "Не задан")
         }
         if key.count <= 8 {
             return "••••••••"
@@ -28,6 +32,10 @@ struct SettingsSheet: View {
         let prefix = key.prefix(4)
         let suffix = key.suffix(4)
         return "\(prefix)••••\(suffix)"
+    }
+
+    private var networkStatusText: String {
+        String(localized: networkMonitor.isConnected ? "Онлайн" : "Офлайн")
     }
 
     var body: some View {
@@ -70,24 +78,20 @@ struct SettingsSheet: View {
                             Circle()
                                 .fill(networkMonitor.isConnected ? Color.green : Color.red)
                                 .frame(width: 8, height: 8)
-                            Text(networkMonitor.isConnected ? "Онлайн" : "Офлайн")
+                            Text(verbatim: networkStatusText)
                                 .foregroundColor(.secondary)
                         }
                     }
                     .accessibilityElement(children: .combine)
-                    .accessibilityLabel("Статус сети: \(networkMonitor.isConnected ? "Онлайн" : "Офлайн")")
+                    .accessibilityLabel("Статус сети: \(networkStatusText)")
 
                     Button {
-                        Task {
-                            isRefreshing = true
-                            await onRefreshCurrencies()
-                            isRefreshing = false
-                        }
+                        refreshCurrencies()
                     } label: {
                         HStack {
                             Label("Обновить курсы и валюты", systemImage: "arrow.clockwise")
+                            Spacer()
                             if isRefreshing {
-                                Spacer()
                                 ProgressView()
                             }
                         }
@@ -95,6 +99,12 @@ struct SettingsSheet: View {
                     .disabled(!networkMonitor.isConnected || isRefreshing)
                     .accessibilityLabel("Обновить курсы и валюты")
                     .accessibilityHint("Запрашивает актуальный список валют и курсы с сервера")
+
+                    if let refreshErrorMessage, !isRefreshing {
+                        Text(verbatim: refreshErrorMessage)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                    }
                 }
 
                 Section(header: Text("О приложении")) {
@@ -125,11 +135,33 @@ struct SettingsSheet: View {
                     .accessibilityLabel("Закрыть настройки")
                 }
             }
-            .sheet(isPresented: $showAPIKeyInputSheet) {
+            .sheet(isPresented: $showAPIKeyInputSheet, onDismiss: {
+                guard didSaveAPIKey else { return }
+                didSaveAPIKey = false
+                dismiss()
+                onAPIKeySaved()
+            }) {
                 APIKeyInputSheet { _ in
-                    showAPIKeyInputSheet = false
+                    // The child dismisses itself only after a successful save.
+                    didSaveAPIKey = true
                 }
             }
+        }
+        .onDisappear {
+            refreshTask?.cancel()
+        }
+    }
+
+    private func refreshCurrencies() {
+        guard !isRefreshing, networkMonitor.isConnected else { return }
+        isRefreshing = true
+        refreshTask = Task {
+            defer {
+                isRefreshing = false
+                refreshTask = nil
+            }
+            guard !Task.isCancelled else { return }
+            await onRefreshCurrencies()
         }
     }
 }

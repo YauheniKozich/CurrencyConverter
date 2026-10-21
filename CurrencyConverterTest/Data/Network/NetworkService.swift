@@ -36,7 +36,7 @@ final class NetworkService: Sendable {
         self.timeout = timeout
         let config = URLSessionConfiguration.default
 
-        config.requestCachePolicy = .returnCacheDataElseLoad
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
         config.urlCache = URLCache(
             memoryCapacity: ConfigurationDefaults.urlCacheMemoryCapacity,
             diskCapacity: ConfigurationDefaults.urlCacheDiskCapacity,
@@ -45,7 +45,7 @@ final class NetworkService: Sendable {
 
         config.timeoutIntervalForRequest = timeout
         config.timeoutIntervalForResource = timeout * ConfigurationDefaults.networkResourceTimeoutMultiplier
-        config.waitsForConnectivity = true
+        config.waitsForConnectivity = false
 
         self.session = URLSession(configuration: config)
     }

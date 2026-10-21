@@ -206,15 +206,16 @@ final class CurrencyAPIRepositoryTests: XCTestCase {
         }
     }
 
-    func testAppError_serverErrorLocalizedDescriptions() {
+    func testAppError_serverErrorRecoveryAndTechnicalDetails() {
         let error401 = AppError.serverError(statusCode: 401)
-        XCTAssertEqual(error401.localizedDescription, "Неверный или неактивный API-ключ")
+        XCTAssertFalse(error401.isRecoverable)
 
         let error429 = AppError.serverError(statusCode: 429)
-        XCTAssertEqual(error429.localizedDescription, "Превышен лимит запросов к CurrencyAPI")
+        XCTAssertTrue(error429.isRecoverable)
 
         let customError = AppError.serverError(statusCode: 500, message: "Custom backend error")
-        XCTAssertEqual(customError.localizedDescription, "Custom backend error")
+        XCTAssertTrue(customError.isRecoverable)
+        XCTAssertEqual(customError.failureReason, "HTTP 500: Custom backend error")
     }
 }
 // MARK: - ConversionHistoryActor Tests

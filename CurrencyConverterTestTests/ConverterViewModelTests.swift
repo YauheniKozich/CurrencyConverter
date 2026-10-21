@@ -6,6 +6,7 @@
 //
 
 import XCTest
+import Observation
 @testable import CurrencyConverterTest
 
 @MainActor
@@ -44,6 +45,15 @@ final class ConverterViewModelTests: XCTestCase {
         try await super.tearDown()
     }
 
+    private func waitForConversion() async {
+        let completion = expectation(description: "Conversion finishes")
+        let observer = ConversionCompletionObserver(model: viewModel, completion: completion)
+        observer.observe()
+        let result = await XCTWaiter.fulfillment(of: [completion], timeout: 3)
+        withExtendedLifetime(observer) {}
+        XCTAssertEqual(result, .completed)
+    }
+
     func testInitialState() {
         XCTAssertEqual(viewModel.fromCurrency, "USD")
         XCTAssertEqual(viewModel.toCurrency, "EUR")
@@ -64,7 +74,7 @@ final class ConverterViewModelTests: XCTestCase {
         mockFormatter.formatResults = ["85.0": "85.00", "0.85": "0.8500"]
 
         viewModel.convert()
-        try await Task.sleep(nanoseconds: 100_000_000)
+        await waitForConversion()
 
         XCTAssertEqual(viewModel.result, "85.00")
         XCTAssertEqual(viewModel.rate, "0.8500")
@@ -82,7 +92,7 @@ final class ConverterViewModelTests: XCTestCase {
         mockFormatter.formatResults = ["85.0": "85.00", "0.85": "0.8500"]
 
         viewModel.convert()
-        try await Task.sleep(nanoseconds: 100_000_000)
+        await waitForConversion()
 
         XCTAssertEqual(viewModel.result, "85.00")
         XCTAssertEqual(viewModel.rate, "0.8500")
@@ -95,11 +105,12 @@ final class ConverterViewModelTests: XCTestCase {
         mockFormatter.parseResult = nil
 
         viewModel.convert()
-        try await Task.sleep(nanoseconds: 100_000_000)
+        await waitForConversion()
 
         XCTAssertEqual(viewModel.result, "")
         XCTAssertEqual(viewModel.rate, "")
-        XCTAssertEqual(viewModel.errorMessage, "Неверный формат суммы")
+        XCTAssertEqual(viewModel.errorType, .validation)
+        XCTAssertNotNil(viewModel.errorMessage)
     }
 
     func testIsValidAmountReflectsParsableAmount() {
@@ -119,11 +130,12 @@ final class ConverterViewModelTests: XCTestCase {
         mockFormatter.parseResult = -100.0
 
         viewModel.convert()
-        try await Task.sleep(nanoseconds: 100_000_000)
+        await waitForConversion()
 
         XCTAssertEqual(viewModel.result, "")
         XCTAssertEqual(viewModel.rate, "")
-        XCTAssertEqual(viewModel.errorMessage, "Некорректная сумма")
+        XCTAssertEqual(viewModel.errorType, .validation)
+        XCTAssertNotNil(viewModel.errorMessage)
     }
 
     func testConvertUseCaseError() async throws {
@@ -132,11 +144,12 @@ final class ConverterViewModelTests: XCTestCase {
         mockRepository.convertError = AppError.networkUnavailable
 
         viewModel.convert()
-        try await Task.sleep(nanoseconds: 100_000_000)
+        await waitForConversion()
 
         XCTAssertEqual(viewModel.result, "")
         XCTAssertEqual(viewModel.rate, "")
-        XCTAssertEqual(viewModel.errorMessage, "Нет подключения к интернету")
+        XCTAssertEqual(viewModel.errorType, .network)
+        XCTAssertNotNil(viewModel.errorMessage)
     }
 
     func testLoadCurrenciesSuccess() async throws {
@@ -160,7 +173,7 @@ final class ConverterViewModelTests: XCTestCase {
 
         XCTAssertEqual(viewModel.currencies, [])
         XCTAssertFalse(viewModel.isLoadingCurrencies)
-        XCTAssertEqual(viewModel.currenciesLoadingError, "Нет подключения к интернету")
+        XCTAssertNotNil(viewModel.currenciesLoadingError)
     }
 
     func testCurrencySelectionPersistence() {
@@ -213,7 +226,7 @@ final class ConverterViewModelTests: XCTestCase {
 
         viewModel.swapCurrencies()
 
-        try await Task.sleep(nanoseconds: 100_000_000)
+        await waitForConversion()
 
         XCTAssertEqual(viewModel.fromCurrency, "EUR")
         XCTAssertEqual(viewModel.toCurrency, "USD")
@@ -242,7 +255,7 @@ final class ConverterViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.toCurrency, "JPY")
         XCTAssertEqual(viewModel.amount, "250")
 
-        try await Task.sleep(nanoseconds: 100_000_000)
+        await waitForConversion()
         XCTAssertEqual(viewModel.result, "48000.00")
     }
 
@@ -267,7 +280,7 @@ final class ConverterViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.toCurrency, "EUR")
         XCTAssertEqual(viewModel.amount, "99.95")
 
-        try await Task.sleep(nanoseconds: 100_000_000)
+        await waitForConversion()
         XCTAssertEqual(viewModel.result, "91.95")
     }
 }
@@ -365,5 +378,28 @@ final class MockNumberFormatter: NumberFormatting, @unchecked Sendable {
 
     func parse(_ string: String) -> Double? {
         return parseResult
+    }
+}
+
+@MainActor
+private final class ConversionCompletionObserver {
+    let model: ConverterViewModel
+    let completion: XCTestExpectation
+
+    init(model: ConverterViewModel, completion: XCTestExpectation) {
+        self.model = model
+        self.completion = completion
+    }
+
+    func observe() {
+        guard model.isConverting else {
+            completion.fulfill()
+            return
+        }
+        withObservationTracking {
+            _ = model.isConverting
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.observe() }
+        }
     }
 }

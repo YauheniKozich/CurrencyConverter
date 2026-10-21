@@ -59,8 +59,8 @@ struct HistoryListView: View {
             title: hasSearchText ? "Ничего не найдено" : "Нет истории",
             systemImage: hasSearchText ? "magnifyingglass" : "clock.badge.exclamationmark",
             description: hasSearchText
-                ? "Попробуйте изменить запрос поиска"
-                : "Вы ещё не выполнили ни одной конвертации",
+                ? Text("Попробуйте изменить запрос поиска")
+                : Text("Вы ещё не выполнили ни одной конвертации"),
             actionTitle: hasSearchText && onResetSearch != nil ? "Сбросить поиск" : nil
         ) {
             onResetSearch?()

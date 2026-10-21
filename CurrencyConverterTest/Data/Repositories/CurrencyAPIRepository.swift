@@ -9,7 +9,7 @@ import Foundation
 
 // MARK: - CurrencyAPI Repository
 
-final class CurrencyAPIRepository: CurrencyRepository, @unchecked Sendable {
+final class CurrencyAPIRepository: CurrencyRepository {
 
     // MARK: - Properties
 
@@ -71,6 +71,7 @@ final class CurrencyAPIRepository: CurrencyRepository, @unchecked Sendable {
     }
 
     func refreshSupportedCurrencies() async throws -> [String: Currency] {
+        await cacheManager.invalidateRatesCache()
         let apiKey = self.apiKey
         let apiBaseURL = self.apiBaseURL
         let networkService = self.networkService
@@ -99,8 +100,13 @@ final class CurrencyAPIRepository: CurrencyRepository, @unchecked Sendable {
     }
 
     func convert(from: String, to: String, amount: Double) async throws -> ConversionResult {
-        if let cachedRate = try await cacheManager.getCachedRate(from: from, to: to) {
-            return ConversionResult(result: amount * cachedRate, rate: cachedRate, isStaleRate: false)
+        try Task.checkCancellation()
+        do {
+            if let cachedRate = try await cacheManager.getCachedRate(from: from, to: to) {
+                return ConversionResult(result: amount * cachedRate, rate: cachedRate, isStaleRate: false)
+            }
+        } catch {
+            Logger.log("Не удалось прочитать кэш курса: \(error)", level: .warning)
         }
 
         do {
@@ -149,6 +155,10 @@ final class CurrencyAPIRepository: CurrencyRepository, @unchecked Sendable {
             }
 
             let rate = currencyValue.value
+            guard rate.isFinite, rate > 0 else {
+                throw AppError.invalidDataFormat(reason: "Exchange rate must be finite and positive")
+            }
+            try Task.checkCancellation()
 
             Logger.log("Получен курс \(from)/\(to): \(rate)", level: .debug)
 

@@ -16,18 +16,18 @@ struct ScreenFeedbackView: View {
 
     @ScaledMetric(relativeTo: .title) private var iconSize: CGFloat = 36
 
-    let title: String
+    let title: LocalizedStringKey
     let systemImage: String
-    let description: String?
-    let actionTitle: String?
+    let description: Text?
+    let actionTitle: LocalizedStringKey?
     let action: (() -> Void)?
     let isProminentAction: Bool
 
     init(
-        title: String,
+        title: LocalizedStringKey,
         systemImage: String,
-        description: String? = nil,
-        actionTitle: String? = nil,
+        description: Text? = nil,
+        actionTitle: LocalizedStringKey? = nil,
         isProminentAction: Bool = true,
         action: (() -> Void)? = nil
     ) {
@@ -51,7 +51,7 @@ struct ScreenFeedbackView: View {
                 .multilineTextAlignment(.center)
 
             if let description {
-                Text(description)
+                description
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -59,10 +59,14 @@ struct ScreenFeedbackView: View {
 
             if let actionTitle, let action {
                 if isProminentAction {
-                    Button(actionTitle, action: action)
+                    Button(action: action) {
+                        Text(actionTitle)
+                    }
                         .buttonStyle(.borderedProminent)
                 } else {
-                    Button(actionTitle, action: action)
+                    Button(action: action) {
+                        Text(actionTitle)
+                    }
                         .buttonStyle(.bordered)
                 }
             }

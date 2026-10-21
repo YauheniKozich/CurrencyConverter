@@ -19,14 +19,13 @@ enum APIKeyLoader {
         from config: NSDictionary,
         storage: APIKeyStorage
     ) -> String? {
-        // 1. Пробуем загрузить из Source (environment/config)
-        if let key = APIKeySource.load(from: config) {
-            storage.save(key)
+        // A key explicitly saved by the user takes precedence over bootstrap configuration.
+        if let key = storage.load() {
             return key
         }
-        
-        // 2. Пробуем загрузить из Keychain
-        if let key = storage.load() {
+
+        if let key = APIKeySource.load(from: config) {
+            _ = storage.save(key)
             return key
         }
         

@@ -14,10 +14,15 @@ struct CurrencyEntity: AppEntity {
     let id: String
     let name: String
 
+    private var displayName: String {
+        guard name.isEmpty else { return name }
+        return Locale.current.localizedString(forCurrencyCode: id.uppercased()) ?? id.uppercased()
+    }
+
     var displayRepresentation: DisplayRepresentation {
         DisplayRepresentation(
             title: "\(id)",
-            subtitle: "\(name)"
+            subtitle: "\(displayName)"
         )
     }
 
@@ -27,30 +32,70 @@ struct CurrencyEntity: AppEntity {
     }
 }
 
-struct CurrencyEntityQuery: EntityQuery {
+struct CurrencyEntityQuery: EntityStringQuery {
     static let popularCurrencies: [CurrencyEntity] = [
-        CurrencyEntity(id: "USD", name: "Доллар США"),
-        CurrencyEntity(id: "EUR", name: "Евро"),
-        CurrencyEntity(id: "RUB", name: "Российский рубль"),
-        CurrencyEntity(id: "BYN", name: "Белорусский рубль"),
-        CurrencyEntity(id: "GBP", name: "Британский фунт"),
-        CurrencyEntity(id: "JPY", name: "Японская иена"),
-        CurrencyEntity(id: "CNY", name: "Китайский юань"),
-        CurrencyEntity(id: "CHF", name: "Швейцарский франк"),
-        CurrencyEntity(id: "CAD", name: "Канадский доллар"),
-        CurrencyEntity(id: "AUD", name: "Австралийский доллар"),
-        CurrencyEntity(id: "PLN", name: "Польский злотый"),
-        CurrencyEntity(id: "TRY", name: "Турецкая лира"),
-        CurrencyEntity(id: "KZT", name: "Казахстанский тенге"),
-        CurrencyEntity(id: "AED", name: "Дирхам ОАЭ")
+        CurrencyEntity(id: "USD"),
+        CurrencyEntity(id: "EUR"),
+        CurrencyEntity(id: "RUB"),
+        CurrencyEntity(id: "BYN"),
+        CurrencyEntity(id: "GBP"),
+        CurrencyEntity(id: "JPY"),
+        CurrencyEntity(id: "CNY"),
+        CurrencyEntity(id: "CHF"),
+        CurrencyEntity(id: "CAD"),
+        CurrencyEntity(id: "AUD"),
+        CurrencyEntity(id: "PLN"),
+        CurrencyEntity(id: "TRY"),
+        CurrencyEntity(id: "KZT"),
+        CurrencyEntity(id: "AED")
     ]
 
+    private let loadCurrencies: @Sendable () async throws -> [String: Currency]
+
+    init() {
+        self.init(loadCurrencies: Self.loadAvailableCurrencies)
+    }
+
+    init(loadCurrencies: @escaping @Sendable () async throws -> [String: Currency]) {
+        self.loadCurrencies = loadCurrencies
+    }
+
+    private static func loadAvailableCurrencies() async throws -> [String: Currency] {
+        // Reuse the app repository's RAM/disk/offline policy, not a second currency list.
+        let repository = try await AppDependencies.shared.createRepository()
+        return try await repository.fetchSupportedCurrencies()
+    }
+
     func entities(for identifiers: [String]) async throws -> [CurrencyEntity] {
-        let upperIdentifiers = identifiers.map { $0.uppercased() }
-        return Self.popularCurrencies.filter { upperIdentifiers.contains($0.id.uppercased()) }
+        guard !identifiers.isEmpty else { return [] }
+        try Task.checkCancellation()
+        let currencies = try await loadCurrencies()
+        try Task.checkCancellation()
+        return identifiers.compactMap { identifier in
+            let code = identifier.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+            guard let currency = currencies[code] else { return nil }
+            return CurrencyEntity(id: currency.code)
+        }
+    }
+
+    func entities(matching string: String) async throws -> [CurrencyEntity] {
+        try Task.checkCancellation()
+        let currencies = try await loadCurrencies()
+        try Task.checkCancellation()
+        let query = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        return currencies.values.filter { currency in
+            query.isEmpty || currency.code.localizedCaseInsensitiveContains(query)
+                || currency.name.localizedCaseInsensitiveContains(query)
+                || CurrencyItem(code: currency.code).name.localizedCaseInsensitiveContains(query)
+        }
+        .sorted { $0.code < $1.code }
+        .map { CurrencyEntity(id: $0.code) }
     }
 
     func suggestedEntities() async throws -> [CurrencyEntity] {
-        Self.popularCurrencies
+        try Task.checkCancellation()
+        let currencies = try await loadCurrencies()
+        try Task.checkCancellation()
+        return Self.popularCurrencies.filter { currencies[$0.id] != nil }
     }
 }

@@ -42,13 +42,13 @@ struct HistoryView: View {
             if !viewModel.conversions.isEmpty {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     ShareLink(
-                        item: viewModel.csvExportString,
-                        subject: Text("История конвертаций"),
-                        message: Text("Экспорт истории конвертаций валют в формате CSV")
+                        item: viewModel.csvExport,
+                        preview: SharePreview("История конвертаций", image: Image(systemName: "tablecells"))
                     ) {
                         Image(systemName: "square.and.arrow.up")
                     }
                     .accessibilityLabel("Экспорт истории в CSV")
+                    .accessibilityIdentifier("history.export.csv")
                     .accessibilityHint("Позволяет сохранить или отправить файл истории конвертаций")
                 }
             }

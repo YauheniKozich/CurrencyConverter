@@ -12,14 +12,12 @@ struct ConverterView: View {
     private enum UI {
         static let textFieldCornerRadius: CGFloat = 8
         static let textFieldBorderWidth: CGFloat = 2
-        static let debounceNanoseconds: UInt64 = 300_000_000
         static let quickPresets = [10, 50, 100, 500, 1000]
     }
 
     @Bindable var viewModel: ConverterViewModel
     let historyViewModel: HistoryViewModel
-    @State private var amountInput: String = ""
-    @State private var debounceTask: Task<Void, Never>?
+    var onAPIKeySaved: () -> Void = {}
     @State private var swapRotation: Double = 0
     @FocusState private var isAmountFocused: Bool
 
@@ -91,20 +89,18 @@ struct ConverterView: View {
             } message: {
                 Text(viewModel.errorMessage ?? "")
             }
-            .task {
-                networkMonitor.onRestoration {
-                    Task {
-                        await viewModel.loadCurrenciesAsync()
-                        if viewModel.isValidAmount {
-                            viewModel.convert()
-                        }
-                    }
-                }
+            .task(id: networkMonitor.isConnected) {
                 await viewModel.loadCurrenciesAsync()
+                guard !Task.isCancelled, networkMonitor.isConnected,
+                      viewModel.isValidAmount,
+                      viewModel.isOfflineRate || viewModel.errorType == .network else { return }
+                viewModel.convert()
             }
             .sheet(item: $activeCurrencySelection) { target in
                 CurrencyPickerSheet(
-                    title: target == .from ? "Из валюты" : "В валюту",
+                    title: target == .from
+                        ? String(localized: "Из валюты")
+                        : String(localized: "В валюту"),
                     selectedCurrency: Binding(
                         get: { target == .from ? viewModel.fromCurrency : viewModel.toCurrency },
                         set: { newCode in
@@ -126,7 +122,9 @@ struct ConverterView: View {
                     currenciesCount: viewModel.currencies.count,
                     onRefreshCurrencies: {
                         await viewModel.refreshCurrencies()
-                    }
+                    },
+                    onAPIKeySaved: onAPIKeySaved,
+                    refreshErrorMessage: viewModel.currenciesLoadingError
                 )
             }
             .sensoryFeedback(.success, trigger: viewModel.result) { oldValue, newValue in
@@ -171,7 +169,7 @@ struct ConverterView: View {
     private var currencySelectionSection: some View {
         Section(header: Text("Выбор валют")) {
             currencySelectorRow(
-                title: "Из",
+                title: String(localized: "Из"),
                 currencyCode: viewModel.fromCurrency,
                 target: .from
             )
@@ -195,7 +193,7 @@ struct ConverterView: View {
             .accessibilityHint("Меняет выбранные валюты местами")
 
             currencySelectorRow(
-                title: "В",
+                title: String(localized: "В"),
                 currencyCode: viewModel.toCurrency,
                 target: .to
             )
@@ -255,7 +253,7 @@ struct ConverterView: View {
                 feedbackSection(
                     title: "Не удалось загрузить валюты",
                     systemImage: "exclamationmark.triangle.fill",
-                    description: error,
+                    description: Text(verbatim: error),
                     actionTitle: "Попробовать снова"
                 ) {
                     Task {
@@ -266,7 +264,7 @@ struct ConverterView: View {
                 feedbackSection(
                     title: "Нет доступных валют",
                     systemImage: "globe",
-                    description: "Попробуйте обновить список",
+                    description: Text("Попробуйте обновить список"),
                     actionTitle: "Обновить"
                 ) {
                     Task {
@@ -283,7 +281,7 @@ struct ConverterView: View {
             feedbackSection(
                 title: "Не удалось обновить список валют",
                 systemImage: "exclamationmark.triangle.fill",
-                description: error,
+                description: Text(verbatim: error),
                 actionTitle: "Попробовать снова"
             ) {
                 Task {
@@ -296,7 +294,10 @@ struct ConverterView: View {
     @ViewBuilder
     private var amountSection: some View {
         Section(header: Text("Сумма")) {
-            TextField("Введите сумму", text: $amountInput)
+            TextField("Введите сумму", text: Binding(
+                get: { viewModel.amount },
+                set: { viewModel.setAmount($0) }
+            ))
                 .keyboardType(.decimalPad)
                 .submitLabel(.done)
                 .focused($isAmountFocused)
@@ -306,33 +307,12 @@ struct ConverterView: View {
                     RoundedRectangle(cornerRadius: UI.textFieldCornerRadius)
                         .stroke(viewModel.hasValidationError ? Color.red : Color.clear, lineWidth: UI.textFieldBorderWidth)
                 )
-                .onChange(of: amountInput) { _, newValue in
-                    guard newValue != viewModel.amount else { return }
-                    debounceTask?.cancel()
-                    let model = viewModel
-                    debounceTask = Task { [weak model] in
-                        do {
-                            try await Task.sleep(nanoseconds: UI.debounceNanoseconds)
-                            model?.setAmount(newValue)
-                        } catch {
-                            return
-                        }
-                    }
-                }
-                .onAppear {
-                    amountInput = viewModel.amount
-                }
-                .onChange(of: viewModel.amount) { _, newValue in
-                    guard amountInput != newValue else { return }
-                    amountInput = newValue
-                }
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(UI.quickPresets, id: \.self) { preset in
                         Button {
                             let strValue = "\(preset)"
-                            amountInput = strValue
                             viewModel.setAmount(strValue)
                         } label: {
                             Text("\(preset)")
@@ -424,7 +404,7 @@ struct ConverterView: View {
             feedbackSection(
                 title: "Не удалось выполнить конвертацию",
                 systemImage: "exclamationmark.circle.fill",
-                description: error,
+                description: Text(verbatim: error),
                 actionTitle: "Попробовать снова",
                 isProminentAction: false
             ) {
@@ -439,12 +419,12 @@ struct ConverterView: View {
             NavigationLink {
                 HistoryView(viewModel: historyViewModel) { entry in
                     viewModel.applyHistoryEntry(entry)
-                    amountInput = viewModel.amount
                 }
             } label: {
                 Text("История")
             }
             .accessibilityLabel("Перейти к истории конвертаций")
+            .accessibilityIdentifier("history.open")
         }
     }
 
@@ -461,10 +441,10 @@ struct ConverterView: View {
 
     @ViewBuilder
     private func feedbackSection(
-        title: String,
+        title: LocalizedStringKey,
         systemImage: String,
-        description: String? = nil,
-        actionTitle: String? = nil,
+        description: Text? = nil,
+        actionTitle: LocalizedStringKey? = nil,
         isProminentAction: Bool = true,
         action: @escaping () -> Void
     ) -> some View {

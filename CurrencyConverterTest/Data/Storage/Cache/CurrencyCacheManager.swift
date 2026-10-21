@@ -15,9 +15,12 @@ actor CurrencyCacheManager {
     private let cacheTTL: TimeInterval
 
     private var cachedCurrencies: [String: Currency]?
-    private var currenciesLoadTask: Task<[String: Currency], any Error>?
-    private var lastCurrenciesHash: Int?
-    private var currenciesGeneration: UInt64 = 0
+    private var cachedCurrenciesUpdatedAt: Date?
+    private var currenciesLoadTask: Task<Void, Never>?
+    private var currenciesLoadID: UUID?
+    private var currencyConsumers: [UUID: CheckedContinuation<[String: Currency], any Error>] = [:]
+    var activeCurrencyConsumerCount: Int { currencyConsumers.count }
+    private var ratesInvalidatedAt: Date?
 
     init(
         localDataSource: any LocalCurrencyDataSource,
@@ -31,71 +34,137 @@ actor CurrencyCacheManager {
         load: @escaping @Sendable () async throws -> [String: Currency],
         forceRefresh: Bool = false
     ) async throws -> [String: Currency] {
-        if forceRefresh {
-            invalidateCurrenciesCache()
-        }
-
-        if let cached = cachedCurrencies, !forceRefresh {
-            Logger.log("Валюты из in-memory кэша: \(cached.count)", level: .debug)
+        try Task.checkCancellation()
+        if forceRefresh { invalidateCurrenciesCache() }
+        if let cached = cachedCurrencies, let date = cachedCurrenciesUpdatedAt, isFresh(date) {
             return cached
         }
 
-        // Проверяем сохранённый дисковый кэш при холодном старте
-        if !forceRefresh,
-           let diskCached = try? localDataSource.loadCachedCurrencies(),
-           !diskCached.isEmpty {
-            cachedCurrencies = diskCached
-            lastCurrenciesHash = calculateCurrenciesHash(diskCached)
-            Logger.log("Валюты загружены из дискового кэша: \(diskCached.count)", level: .debug)
-            return diskCached
-        }
-
-        if let existingTask = currenciesLoadTask {
-            Logger.log("Ждём завершения загрузки валют", level: .debug)
-            return try await existingTask.value
-        }
-
-        let requestGeneration = currenciesGeneration
-        let loadTask = Task {
-            do {
-                let currencies = try await load()
-
-                return commitLoadedCurrencies(
-                    currencies,
-                    generation: requestGeneration,
-                    forceRefresh: forceRefresh
-                )
-            } catch {
-                clearLoadTaskIfCurrent(generation: requestGeneration)
-
-                // Офлайн фоллбэк: если запрос упал (например, нет сети), используем сохранённый дисковый кэш
-                if let diskCached = try? localDataSource.loadCachedCurrencies(),
-                   !diskCached.isEmpty {
-                    Logger.log("Сеть недоступна, возвращаем сохранённый дисковый кэш валют", level: .warning)
-                    cachedCurrencies = diskCached
-                    lastCurrenciesHash = calculateCurrenciesHash(diskCached)
-                    return diskCached
+        let consumerID = UUID()
+        let currencies: [String: Currency] = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[String: Currency], any Error>) in
+                // Cancellation can arrive between entering the handler and registration.
+                guard !Task.isCancelled else {
+                    continuation.resume(throwing: CancellationError())
+                    return
                 }
-
-                throw error
+                currencyConsumers[consumerID] = continuation
+                guard currenciesLoadTask == nil else { return }
+                let requestID = UUID()
+                currenciesLoadID = requestID
+                currenciesLoadTask = Task {
+                    do {
+                        let result = try await loadCurrencies(
+                            load: load, forceRefresh: forceRefresh, requestID: requestID
+                        )
+                        finishCurrencyLoad(requestID: requestID, result: .success(result))
+                    } catch {
+                        finishCurrencyLoad(requestID: requestID, result: .failure(error))
+                    }
+                }
             }
+        } onCancel: {
+            // A bounded actor message; it never waits for the shared network task.
+            Task { await self.cancelCurrencyConsumer(consumerID) }
         }
-        currenciesLoadTask = loadTask
-
-        return try await loadTask.value
+        try Task.checkCancellation()
+        return currencies
     }
 
     func invalidateCurrenciesCache() {
-        currenciesGeneration &+= 1
-        currenciesLoadTask?.cancel()
+        cancelCurrencyLoad()
         cachedCurrencies = nil
-        currenciesLoadTask = nil
-        lastCurrenciesHash = nil
+        cachedCurrenciesUpdatedAt = nil
     }
 
-    func getCachedRate(from: String, to: String) throws -> Double? {
-        guard let cached = try localDataSource.loadCachedRate(from: from, to: to),
-              Date().timeIntervalSince(cached.timestamp) < cacheTTL else {
+    private func cancelCurrencyConsumer(_ id: UUID) {
+        guard let continuation = currencyConsumers.removeValue(forKey: id) else { return }
+        continuation.resume(throwing: CancellationError())
+        if currencyConsumers.isEmpty {
+            currenciesLoadTask?.cancel()
+            currenciesLoadTask = nil
+            currenciesLoadID = nil
+        }
+    }
+
+    private func cancelCurrencyLoad() {
+        currenciesLoadTask?.cancel()
+        currenciesLoadTask = nil
+        currenciesLoadID = nil
+        let consumers = currencyConsumers
+        currencyConsumers.removeAll()
+        for continuation in consumers.values {
+            continuation.resume(throwing: CancellationError())
+        }
+    }
+
+    private func finishCurrencyLoad(
+        requestID: UUID, result: Result<[String: Currency], any Error>
+    ) {
+        guard currenciesLoadID == requestID else { return }
+        currenciesLoadTask = nil
+        currenciesLoadID = nil
+        let consumers = currencyConsumers
+        currencyConsumers.removeAll()
+        for continuation in consumers.values { continuation.resume(with: result) }
+    }
+
+    private func checkCurrencyLoad(_ requestID: UUID) throws {
+        try Task.checkCancellation()
+        guard currenciesLoadID == requestID else { throw CancellationError() }
+    }
+
+    private func loadCurrencies(
+        load: @Sendable () async throws -> [String: Currency],
+        forceRefresh: Bool,
+        requestID: UUID
+    ) async throws -> [String: Currency] {
+        // Disk lookup, network, fallback and disk save belong to the same in-flight request.
+        if !forceRefresh {
+            let disk = try? await localDataSource.loadCachedCurrencyList()
+            try checkCurrencyLoad(requestID)
+            if let disk, !disk.currencies.isEmpty, isFresh(disk.updatedAt) {
+                cachedCurrencies = disk.currencies
+                cachedCurrenciesUpdatedAt = disk.updatedAt
+                return disk.currencies
+            }
+        }
+
+        let currencies: [String: Currency]
+        do {
+            currencies = try await load()
+        } catch {
+            try checkCurrencyLoad(requestID)
+            if let urlError = error as? URLError, urlError.code == .cancelled {
+                throw CancellationError()
+            }
+            if error is CancellationError { throw CancellationError() }
+            if let networkError = error as? NetworkError, !networkError.appError.isRecoverable {
+                throw error
+            }
+            let disk = try? await localDataSource.loadCachedCurrencies()
+            try checkCurrencyLoad(requestID)
+            guard let disk, !disk.isEmpty else { throw error }
+            cachedCurrencies = disk
+            cachedCurrenciesUpdatedAt = .distantPast
+            return disk
+        }
+
+        try checkCurrencyLoad(requestID)
+        let updatedAt = Date()
+        // Keep ownership through the save; cancellation/invalidation may occur at this await.
+        try? await localDataSource.saveCachedCurrencies(currencies)
+        try checkCurrencyLoad(requestID)
+        cachedCurrencies = currencies
+        cachedCurrenciesUpdatedAt = updatedAt
+        return currencies
+    }
+
+    func getCachedRate(from: String, to: String) async throws -> Double? {
+        guard let cached = try await localDataSource.loadCachedRate(from: from, to: to),
+              cached.rate.isFinite, cached.rate > 0,
+              isFresh(cached.timestamp),
+              ratesInvalidatedAt.map({ cached.timestamp >= $0 }) ?? true else {
             return nil
         }
 
@@ -103,8 +172,9 @@ actor CurrencyCacheManager {
         return cached.rate
     }
 
-    func getStaleCachedRate(from: String, to: String) throws -> Double? {
-        guard let cached = try? localDataSource.loadCachedRate(from: from, to: to) else {
+    func getStaleCachedRate(from: String, to: String) async throws -> Double? {
+        guard let cached = try? await localDataSource.loadCachedRate(from: from, to: to),
+              cached.rate.isFinite, cached.rate > 0 else {
             return nil
         }
 
@@ -112,49 +182,22 @@ actor CurrencyCacheManager {
         return cached.rate
     }
 
-    func saveRate(from: String, to: String, rate: Double) {
+    func invalidateRatesCache() {
+        // Keep persisted rates available as stale fallback if the refresh fails.
+        ratesInvalidatedAt = .now
+    }
+
+    func saveRate(from: String, to: String, rate: Double) async {
         do {
-            try localDataSource.saveRate(from: from, to: to, rate: rate)
+            try await localDataSource.saveRate(from: from, to: to, rate: rate)
             Logger.log("Курс сохранен в кэш", level: .debug)
         } catch {
             Logger.log("Не удалось сохранить курс в кэш: \(error)", level: .error)
         }
     }
 
-    private func calculateCurrenciesHash(_ currencies: [String: Currency]) -> Int {
-        let sortedCodes = currencies.keys.sorted()
-        return sortedCodes.hashValue
-    }
-
-    private func commitLoadedCurrencies(
-        _ currencies: [String: Currency],
-        generation: UInt64,
-        forceRefresh: Bool
-    ) -> [String: Currency] {
-        guard generation == currenciesGeneration else {
-            Logger.log("Игнорируем устаревшую загрузку валют", level: .debug)
-            return cachedCurrencies ?? currencies
-        }
-
-        let currentHash = calculateCurrenciesHash(currencies)
-
-        if let lastHash = lastCurrenciesHash,
-           currentHash == lastHash && !forceRefresh {
-            Logger.log("Данные не изменились, используем кэш", level: .debug)
-            currenciesLoadTask = nil
-            return cachedCurrencies ?? currencies
-        }
-
-        Logger.log("Данные обновились, обновляем кэш", level: .debug)
-        cachedCurrencies = currencies
-        lastCurrenciesHash = currentHash
-        currenciesLoadTask = nil
-        try? localDataSource.saveCachedCurrencies(currencies)
-        return currencies
-    }
-
-    private func clearLoadTaskIfCurrent(generation: UInt64) {
-        guard generation == currenciesGeneration else { return }
-        currenciesLoadTask = nil
+    private func isFresh(_ date: Date) -> Bool {
+        let age = Date().timeIntervalSince(date)
+        return age >= 0 && age < cacheTTL
     }
 }

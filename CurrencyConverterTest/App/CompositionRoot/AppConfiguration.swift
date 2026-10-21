@@ -15,22 +15,22 @@ enum ConfigurationError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .configFileNotFound:
-            return "Файл конфигурации не найден"
+            return String(localized: "Файл конфигурации не найден")
         case .invalidAPIKey:
-            return "API ключ не найден или пустой"
+            return String(localized: "API ключ не найден или пустой")
         case .invalidBaseURL:
-            return "Неверный базовый URL API"
+            return String(localized: "Неверный базовый URL API")
         }
     }
 
     var recoverySuggestion: String? {
         switch self {
         case .configFileNotFound:
-            return "Проверьте наличие файла Config.plist в проекте"
+            return String(localized: "Проверьте наличие файла Config.plist в проекте")
         case .invalidAPIKey:
-            return "Добавьте корректный API ключ в Config.plist или задайте CURRENCY_API_KEY в окружении схемы"
+            return String(localized: "Добавьте корректный API ключ в Config.plist или задайте CURRENCY_API_KEY в окружении схемы")
         case .invalidBaseURL:
-            return "Проверьте правильность URL в Config.plist"
+            return String(localized: "Проверьте правильность URL в Config.plist")
         }
     }
 }

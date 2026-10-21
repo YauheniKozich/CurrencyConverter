@@ -13,47 +13,64 @@ struct CachedRate: Sendable {
     let timestamp: Date
 }
 
-/// Safe to share because it is created for and accessed only by the
-/// `CurrencyCacheManager` actor, which serializes every synchronous context access.
-final class CurrencyLocalDataSource: @unchecked Sendable {
+struct CachedCurrencyList: Sendable {
+    let currencies: [String: Currency]
+    let updatedAt: Date
+}
 
-    private let context: ModelContext
+/// The model executor owns the context; only Sendable snapshots leave this actor.
+actor CurrencyLocalDataSource: ModelActor {
+
+    private struct CurrencyCacheFile: Codable {
+        let currencies: [String: Currency]
+        let updatedAt: Date
+    }
+
+    nonisolated let modelContainer: ModelContainer
+    nonisolated let modelExecutor: any ModelExecutor
     private let cacheDirectoryURL: URL?
 
     init(modelContainer: ModelContainer, cacheDirectoryURL: URL? = nil) {
-        self.context = ModelContext(modelContainer)
-        self.context.autosaveEnabled = false
+        let context = ModelContext(modelContainer)
+        context.autosaveEnabled = false
+        self.modelContainer = modelContainer
+        self.modelExecutor = DefaultSerialModelExecutor(modelContext: context)
         self.cacheDirectoryURL = cacheDirectoryURL
     }
 
-    func loadCachedRate(from: String, to: String) throws -> CachedRate? {
+    func loadCachedRate(from: String, to: String) async throws -> CachedRate? {
         let descriptor = FetchDescriptor<ExchangeRate>(
             predicate: #Predicate { $0.from == from && $0.to == to },
             sortBy: [.init(\.timestamp, order: .reverse)]
         )
-        guard let cached = try context.fetch(descriptor).first else {
+        guard let cached = try modelContext.fetch(descriptor).first else {
             return nil
         }
         return CachedRate(rate: cached.rate, timestamp: cached.timestamp)
     }
 
-    func saveRate(from: String, to: String, rate: Double) throws {
+    func saveRate(from: String, to: String, rate: Double) async throws {
         let descriptor = FetchDescriptor<ExchangeRate>(
             predicate: #Predicate { $0.from == from && $0.to == to },
             sortBy: [.init(\.timestamp, order: .reverse)]
         )
-        let existing = try context.fetch(descriptor)
+        let existing = try modelContext.fetch(descriptor)
         if let current = existing.first {
             current.rate = rate
             current.timestamp = Date()
             for duplicate in existing.dropFirst() {
-                context.delete(duplicate)
+                modelContext.delete(duplicate)
             }
         } else {
             let cached = ExchangeRate(from: from, to: to, rate: rate)
-            context.insert(cached)
+            modelContext.insert(cached)
         }
-        try context.save()
+        do {
+            try modelContext.save()
+        } catch {
+            modelContext.rollback()
+            throw error
+        }
     }
 
     // MARK: - Currencies Persistence
@@ -65,25 +82,43 @@ final class CurrencyLocalDataSource: @unchecked Sendable {
         return directory?.appendingPathComponent("cached_currencies.json")
     }
 
-    func loadCachedCurrencies() throws -> [String: Currency]? {
-        guard let url = currenciesCacheURL, FileManager.default.fileExists(atPath: url.path) else {
-            return nil
-        }
-        let data = try Data(contentsOf: url)
-        return try JSONDecoder().decode([String: Currency].self, from: data)
+    func loadCachedCurrencies() async throws -> [String: Currency]? {
+        try await loadCachedCurrencyList()?.currencies
     }
 
-    func saveCachedCurrencies(_ currencies: [String: Currency]) throws {
+    func loadCachedCurrencyList() async throws -> CachedCurrencyList? {
+        guard let cache = try loadCurrencyCacheFile() else { return nil }
+        return CachedCurrencyList(currencies: cache.currencies, updatedAt: cache.updatedAt)
+    }
+
+    func saveCachedCurrencies(_ currencies: [String: Currency]) async throws {
+        try Task.checkCancellation()
         guard let url = currenciesCacheURL else { return }
         let directory = url.deletingLastPathComponent()
         if !FileManager.default.fileExists(atPath: directory.path) {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         }
-        let data = try JSONEncoder().encode(currencies)
+        let cache = CurrencyCacheFile(currencies: currencies, updatedAt: Date())
+        let data = try JSONEncoder().encode(cache)
         try data.write(to: url, options: .atomic)
     }
 
-    func clearCachedCurrencies() throws {
+    private func loadCurrencyCacheFile() throws -> CurrencyCacheFile? {
+        guard let url = currenciesCacheURL, FileManager.default.fileExists(atPath: url.path) else {
+            return nil
+        }
+        let data = try Data(contentsOf: url)
+        if let cache = try? JSONDecoder().decode(CurrencyCacheFile.self, from: data) {
+            return cache
+        }
+
+        // Previous releases stored only the dictionary. Keep it as stale offline data;
+        // without a timestamp it must be refreshed before being treated as current.
+        let legacyCurrencies = try JSONDecoder().decode([String: Currency].self, from: data)
+        return CurrencyCacheFile(currencies: legacyCurrencies, updatedAt: .distantPast)
+    }
+
+    func clearCachedCurrencies() async throws {
         guard let url = currenciesCacheURL, FileManager.default.fileExists(atPath: url.path) else { return }
         try FileManager.default.removeItem(at: url)
     }

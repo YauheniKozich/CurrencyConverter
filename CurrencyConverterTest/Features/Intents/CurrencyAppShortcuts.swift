@@ -12,11 +12,11 @@ struct CurrencyAppShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: ConvertCurrencyIntent(),
             phrases: [
-                "Конвертируй валюту в \(.applicationName)",
-                "Переведи валюту в \(.applicationName)",
-                "Конвертируй \(\.$fromCurrency) в \(.applicationName)",
-                "Convert currency in \(.applicationName)",
-                "Convert \(\.$fromCurrency) in \(.applicationName)"
+                "Конвертируй валюту с помощью \(.applicationName)",
+                "Переведи валюту с помощью \(.applicationName)",
+                "Конвертируй \(\.$fromCurrency) с помощью \(.applicationName)",
+                "Convert currency with \(.applicationName)",
+                "Convert \(\.$fromCurrency) with \(.applicationName)"
             ],
             shortTitle: "Конвертация валюты",
             systemImageName: "arrow.triangle.2.circlepath"

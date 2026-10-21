@@ -28,7 +28,14 @@ struct CurrencyConverterApp: App {
             if let error = initError {
                 errorView(error: error)
             } else if let viewModel, let historyViewModel {
-                ConverterView(viewModel: viewModel, historyViewModel: historyViewModel)
+                ConverterView(
+                    viewModel: viewModel,
+                    historyViewModel: historyViewModel,
+                    onAPIKeySaved: {
+                        Task { await initializeApp() }
+                    }
+                )
+                .id(ObjectIdentifier(viewModel))
             } else {
                 ProgressView("Инициализация...")
                     .task {
@@ -95,17 +102,49 @@ struct CurrencyConverterApp: App {
     }
 
     @MainActor
+    private func makeDependencies() async throws -> AppDependencies {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--ui-test-history") {
+            let schema = Schema([Conversion.self, ExchangeRate.self])
+            let container = try ModelContainer(
+                for: schema, configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+            )
+            let configuration = try AppConfiguration(
+                apiKey: "ui-fixture", apiBaseURL: ConfigurationDefaults.defaultBaseURL
+            )
+            let dependencies = AppDependencies(
+                config: configuration, database: container, repository: HistoryUITestRepository()
+            )
+            try await dependencies.createSaveHistoryUseCase().execute(
+                from: "USD", to: "EUR", amount: 12.5, result: 11.5, rate: 0.92
+            )
+            return dependencies
+        }
+        #endif
+        if let modelContainer {
+            return AppDependencies(config: try AppConfiguration(), database: modelContainer)
+        }
+        return try AppDependencies()
+    }
+
+    @MainActor
     private func initializeApp() async {
         guard !isInitializing else { return }
         isInitializing = true
         defer { isInitializing = false }
 
+        let previousAmount = viewModel?.amount
+        viewModel?.cancelConversion()
+
         do {
-            let deps = try AppDependencies()
-            AppDependencies.setShared(deps)
+            let deps = try await makeDependencies()
             let converterViewModel = try await deps.createConverterScreen()
             let historyViewModel = try deps.createHistoryScreen()
 
+            if let previousAmount {
+                converterViewModel.setAmount(previousAmount)
+            }
+            AppDependencies.setShared(deps)
             self.viewModel = converterViewModel
             self.historyViewModel = historyViewModel
             self.modelContainer = deps.database
@@ -119,3 +158,20 @@ struct CurrencyConverterApp: App {
         }
     }
 }
+
+#if DEBUG
+/// Deterministic UI fixture: no network requests, credentials or persistent user data.
+private struct HistoryUITestRepository: CurrencyRepository {
+    func fetchSupportedCurrencies() async throws -> [String: Currency] {
+        ["USD": Currency(code: "USD", name: "US Dollar"), "EUR": Currency(code: "EUR", name: "Euro")]
+    }
+
+    func refreshSupportedCurrencies() async throws -> [String: Currency] {
+        try await fetchSupportedCurrencies()
+    }
+
+    func convert(from: String, to: String, amount: Double) async throws -> ConversionResult {
+        ConversionResult(result: amount * 0.92, rate: 0.92)
+    }
+}
+#endif

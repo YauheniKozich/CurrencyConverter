@@ -42,65 +42,62 @@ extension AppError {
     var errorDescription: String? {
         switch self {
         case .configurationError:
-            return "Ошибка конфигурации приложения"
+            return String(localized: "Ошибка конфигурации приложения")
         case .networkUnavailable:
-            return "Нет подключения к интернету"
+            return String(localized: "Нет подключения к интернету")
         case .networkTimeout:
-            return "Превышено время ожидания ответа"
-        case .serverError(let code, let customMessage):
-            if let customMessage, !customMessage.isEmpty {
-                return customMessage
-            }
+            return String(localized: "Превышено время ожидания ответа")
+        case .serverError(let code, _):
             switch code {
             case 401:
-                return "Неверный или неактивный API-ключ"
+                return String(localized: "Неверный или неактивный API-ключ")
             case 403:
-                return "Доступ к API запрещен"
+                return String(localized: "Доступ к API запрещен")
             case 422:
-                return "Некорректные параметры запроса"
+                return String(localized: "Некорректные параметры запроса")
             case 429:
-                return "Превышен лимит запросов к CurrencyAPI"
+                return String(localized: "Превышен лимит запросов к CurrencyAPI")
             case 500...599:
-                return "Сервер CurrencyAPI временно недоступен"
+                return String(localized: "Сервер CurrencyAPI временно недоступен")
             default:
-                return "Ошибка сервера: код \(code)"
+                return String(localized: "Ошибка сервера: код \(code)")
             }
         case .dataNotFound:
-            return "Данные не найдены"
+            return String(localized: "Данные не найдены")
         case .invalidDataFormat:
-            return "Неверный формат данных"
+            return String(localized: "Неверный формат данных")
         case .validationError(let message):
             return message
         case .storageError:
-            return "Ошибка сохранения данных"
+            return String(localized: "Ошибка сохранения данных")
         case .unknown:
-            return "Произошла ошибка. Попробуйте снова."
+            return String(localized: "Произошла ошибка. Попробуйте снова.")
         }
     }
     
     var recoverySuggestion: String? {
         switch self {
         case .configurationError:
-            return "Проверьте настройки приложения"
+            return String(localized: "Проверьте настройки приложения")
         case .networkUnavailable, .networkTimeout:
-            return "Проверьте подключение к интернету и попробуйте снова"
+            return String(localized: "Проверьте подключение к интернету и попробуйте снова")
         case .serverError(let code, _):
             switch code {
             case 401, 403:
-                return "Проверьте правильность введенного API-ключа в настройках"
+                return String(localized: "Проверьте правильность введенного API-ключа в настройках")
             case 429:
-                return "Подождите обновления квоты запросов или используйте другой API-ключ"
+                return String(localized: "Подождите обновления квоты запросов или используйте другой API-ключ")
             default:
-                return "Попробуйте позже"
+                return String(localized: "Попробуйте позже")
             }
         case .dataNotFound, .invalidDataFormat:
-            return "Обратитесь в службу поддержки"
+            return String(localized: "Обратитесь в службу поддержки")
         case .validationError:
-            return "Исправьте ошибку и повторите попытку"
+            return String(localized: "Исправьте ошибку и повторите попытку")
         case .storageError:
-            return "Освободите место и попробуйте снова"
+            return String(localized: "Освободите место и попробуйте снова")
         case .unknown:
-            return "Попробуйте позже"
+            return String(localized: "Попробуйте позже")
         }
     }
     
@@ -129,8 +126,10 @@ extension AppError {
     
     var isRecoverable: Bool {
         switch self {
-        case .networkUnavailable, .networkTimeout, .serverError, .unknown:
+        case .networkUnavailable, .networkTimeout, .unknown:
             return true
+        case .serverError(let code, _):
+            return code == 0 || code == 408 || code == 429 || (500...599).contains(code)
         case .configurationError, .dataNotFound, .invalidDataFormat, .validationError, .storageError:
             return false
         }

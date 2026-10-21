@@ -22,7 +22,7 @@ struct ConvertCurrencyIntent: AppIntent {
     var toCurrency: CurrencyEntity
 
     static var parameterSummary: some ParameterSummary {
-        Summary("Конвертировать (\(\.$amount)) (\(\.$fromCurrency)) в (\(\.$toCurrency))")
+        Summary("Конвертировать \(\.$amount) из \(\.$fromCurrency) в \(\.$toCurrency)")
     }
 
     init() {}

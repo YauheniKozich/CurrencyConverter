@@ -11,16 +11,11 @@ import SwiftUI
 @MainActor
 final class ConverterViewModel {
 
-    private enum AmountNormalization {
-        static let allowedCharacters = CharacterSet(charactersIn: "0123456789.")
-        static let decimalSeparator = "."
-        static let maxDecimalSeparators = 1
-    }
-
     var fromCurrency: String {
         didSet {
             guard fromCurrency != oldValue else { return }
             preferences.fromCurrency = fromCurrency
+            invalidateConversion()
         }
     }
 
@@ -28,6 +23,7 @@ final class ConverterViewModel {
         didSet {
             guard toCurrency != oldValue else { return }
             preferences.toCurrency = toCurrency
+            invalidateConversion()
         }
     }
 
@@ -54,7 +50,8 @@ final class ConverterViewModel {
     }
 
     var isValidAmount: Bool {
-        numberFormatter.parse(amount) != nil
+        guard let value = numberFormatter.parse(amount) else { return false }
+        return value.isFinite && value >= 0
     }
 
     var formattedResult: String {
@@ -103,20 +100,21 @@ final class ConverterViewModel {
     }
 
     func setAmount(_ newAmount: String) {
-        amount = normalizeAmount(newAmount)
-        errorMessage = nil
-        errorType = .unknown
+        let normalized = normalizeAmount(newAmount)
+        guard normalized != amount else { return }
+        amount = normalized
+        invalidateConversion()
     }
 
     func applyHistoryEntry(_ entry: ConversionHistoryEntry) {
+        guard entry.amount.isFinite, entry.amount >= 0 else { return }
         fromCurrency = entry.from
         toCurrency = entry.to
-        let formattedAmount: String
-        if entry.amount.truncatingRemainder(dividingBy: 1) == 0 {
-            formattedAmount = String(Int(entry.amount))
-        } else {
-            formattedAmount = numberFormatter.format(entry.amount, decimals: 2)
-        }
+        // String(Double) preserves round-trip precision without an Int conversion.
+        let representation = String(entry.amount)
+        let formattedAmount = representation.hasSuffix(".0")
+            ? String(representation.dropLast(2))
+            : representation
         setAmount(formattedAmount)
         convert()
     }
@@ -156,6 +154,8 @@ final class ConverterViewModel {
     func refreshCurrencies() async {
         guard !Task.isCancelled else { return }
         await loadSupportedCurrencies(forceRefresh: true)
+        guard !Task.isCancelled, isValidAmount else { return }
+        convert()
     }
 
     private func performConversion(requestID: Int, from: String, to: String, amount: String) async {
@@ -209,7 +209,7 @@ final class ConverterViewModel {
 
         } catch {
             guard !Task.isCancelled, requestID == conversionRequestID else { return }
-            errorMessage = "Произошла ошибка. Попробуйте снова."
+            errorMessage = String(localized: "Произошла ошибка. Попробуйте снова.")
             errorType = .unknown
             Logger.log("Unknown conversion error: \(error)", level: .error)
             result = ""
@@ -246,26 +246,30 @@ final class ConverterViewModel {
         } catch {
             guard !Task.isCancelled, requestID == currencyLoadRequestID else { return }
 
-            currenciesLoadingError = "Не удалось загрузить валюты"
+            currenciesLoadingError = String(localized: "Не удалось загрузить валюты")
             Logger.log("Unknown load currencies error: \(error)", level: .error)
         }
     }
 
-    private func normalizeAmount(_ input: String) -> String {
-        let normalized = input
-            .replacingOccurrences(of: ",", with: ".")
-        var filtered = String(
-            String.UnicodeScalarView(
-                normalized.unicodeScalars.filter { Self.AmountNormalization.allowedCharacters.contains($0) }
-            )
-        )
+    func cancelConversion() {
+        convertTask?.cancel()
+        convertTask = nil
+        conversionRequestID &+= 1
+        isConverting = false
+    }
 
-        let components = filtered.split(separator: Character(Self.AmountNormalization.decimalSeparator))
-        if components.count > Self.AmountNormalization.maxDecimalSeparators + 1 {
-            filtered = components.prefix(Self.AmountNormalization.maxDecimalSeparators + 1).joined(
-                separator: Self.AmountNormalization.decimalSeparator
-            )
-        }
-        return filtered
+    private func invalidateConversion() {
+        cancelConversion()
+        result = ""
+        rate = ""
+        inverseRate = ""
+        isOfflineRate = false
+        clearError()
+    }
+
+    private func normalizeAmount(_ input: String) -> String {
+        // Preserve invalid input so "-100" or "1e3" cannot silently become "100" or "13".
+        input.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: ",", with: ".")
     }
 }

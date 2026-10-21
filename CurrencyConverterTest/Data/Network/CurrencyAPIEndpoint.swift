@@ -77,7 +77,8 @@ struct CurrencyAPIEndpoint: Sendable {
             throw NetworkError.invalidURL
         }
 
-        var request = URLRequest(url: url)
+        // CurrencyCacheManager owns TTL and stale fallback; HTTP cache must not renew old rates.
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
         request.httpMethod = "GET"
 
         if let apiKey = apiKey {

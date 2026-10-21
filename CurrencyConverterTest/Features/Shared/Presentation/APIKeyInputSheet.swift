@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import WidgetKit
 
 struct APIKeyInputSheet: View {
     @Environment(\.dismiss) private var dismiss
@@ -109,6 +110,7 @@ struct APIKeyInputSheet: View {
             } message: {
                 Text("Не удалось связаться с сервером для проверки ключа. Сохранить ключ без проверки?")
             }
+            .interactiveDismissDisabled(isValidating)
             .onAppear {
                 isFieldFocused = true
             }
@@ -116,6 +118,7 @@ struct APIKeyInputSheet: View {
     }
 
     private func validateAndSave() async {
+        guard !isValidating else { return }
         let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             errorMessage = String(localized: "API ключ не может быть пустым")
@@ -143,7 +146,11 @@ struct APIKeyInputSheet: View {
         guard !trimmed.isEmpty else { return }
 
         let storage = APIKeyStorage()
-        storage.save(trimmed)
+        guard storage.save(trimmed) else {
+            errorMessage = String(localized: "Не удалось сохранить ключ в Keychain. Проверьте настройки подписи приложения.")
+            return
+        }
+        WidgetCenter.shared.reloadAllTimelines()
         onSaved(trimmed)
         dismiss()
     }

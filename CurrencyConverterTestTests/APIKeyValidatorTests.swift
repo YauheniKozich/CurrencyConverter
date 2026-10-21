@@ -91,7 +91,7 @@ final class APIKeyValidatorTests: XCTestCase {
             XCTFail("Expected .invalid for 401, got \(result)")
             return
         }
-        XCTAssertTrue(message.contains("Validation error") || message.contains("API key"))
+        XCTAssertEqual(message, String(localized: "Неверный API ключ (код 401)"))
     }
 
     func testValidate_withNetworkError_returnsNetworkError() async {

@@ -18,15 +18,11 @@ final class HistoryViewModel {
     private(set) var isDeleting: Bool = false
     private(set) var errorMessage: String?
 
-    var csvExportString: String {
-        let header = "Date,From,To,Amount,Result,Rate\n"
-        let formatter = ISO8601DateFormatter()
-        let rows = conversions.map { entry in
-            let dateStr = formatter.string(from: entry.date)
-            return "\(dateStr),\(entry.from),\(entry.to),\(entry.amount),\(entry.result),\(entry.rate)"
-        }.joined(separator: "\n")
-        return header + rows
+    var csvExport: HistoryCSVExport {
+        HistoryCSVExport(entries: conversions)
     }
+
+    var csvExportString: String { csvExport.content }
 
     init(historyUseCase: any ConversionHistoryUseCaseProtocol) {
         self.historyUseCase = historyUseCase
@@ -44,7 +40,7 @@ final class HistoryViewModel {
         } catch is CancellationError {
             return
         } catch {
-            errorMessage = "Не удалось загрузить историю"
+            errorMessage = String(localized: "Не удалось загрузить историю")
             Logger.log("Load conversion history error: \(error)", level: .error)
         }
     }
@@ -62,7 +58,7 @@ final class HistoryViewModel {
         } catch is CancellationError {
             return
         } catch {
-            errorMessage = "Не удалось удалить запись"
+            errorMessage = String(localized: "Не удалось удалить запись")
             Logger.log("Delete conversion error: \(error)", level: .error)
         }
     }

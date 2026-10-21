@@ -8,17 +8,20 @@
 import Foundation
 import SwiftData
 
-actor ConversionHistoryActor: ConversionHistoryStore, ConversionHistoryReader {
+actor ConversionHistoryActor: ModelActor, ConversionHistoryStore, ConversionHistoryReader {
 
-    private let modelContext: ModelContext
+    nonisolated let modelContainer: ModelContainer
+    nonisolated let modelExecutor: any ModelExecutor
     private let maxEntries: Int
 
     init(
         modelContainer: ModelContainer,
         maxEntries: Int = ConfigurationDefaults.maxHistoryEntries
     ) throws {
-        self.modelContext = ModelContext(modelContainer)
-        self.modelContext.autosaveEnabled = false
+        let context = ModelContext(modelContainer)
+        context.autosaveEnabled = false
+        self.modelContainer = modelContainer
+        self.modelExecutor = DefaultSerialModelExecutor(modelContext: context)
         self.maxEntries = maxEntries
     }
 
@@ -30,9 +33,15 @@ actor ConversionHistoryActor: ConversionHistoryStore, ConversionHistoryReader {
             result: result,
             rate: rate
         )
-        modelContext.insert(conversion)
-        try trimHistoryIfNeeded()
-        try modelContext.save()
+        try Task.checkCancellation()
+        do {
+            modelContext.insert(conversion)
+            try trimHistoryIfNeeded()
+            try modelContext.save()
+        } catch {
+            modelContext.rollback()
+            throw error
+        }
     }
 
     func deleteConversion(id: UUID) async throws {
@@ -40,8 +49,9 @@ actor ConversionHistoryActor: ConversionHistoryStore, ConversionHistoryReader {
             predicate: #Predicate { $0.id == id }
         )
         if let conversion = try modelContext.fetch(descriptor).first {
+            try Task.checkCancellation()
             modelContext.delete(conversion)
-            try modelContext.save()
+            try saveOrRollback()
         }
     }
 
@@ -51,7 +61,7 @@ actor ConversionHistoryActor: ConversionHistoryStore, ConversionHistoryReader {
         for entry in all {
             modelContext.delete(entry)
         }
-        try modelContext.save()
+        try saveOrRollback()
     }
 
     func fetchHistory() async throws -> [ConversionHistoryEntry] {
@@ -72,6 +82,15 @@ actor ConversionHistoryActor: ConversionHistoryStore, ConversionHistoryReader {
     }
 
     // MARK: - Private Helpers
+
+    private func saveOrRollback() throws {
+        do {
+            try modelContext.save()
+        } catch {
+            modelContext.rollback()
+            throw error
+        }
+    }
 
     private func trimHistoryIfNeeded() throws {
         guard maxEntries > 0 else { return }

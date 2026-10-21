@@ -13,7 +13,7 @@ struct ScreenLoadingOverlayView: View {
         static let topPadding: CGFloat = 16
     }
 
-    let title: String
+    let title: LocalizedStringKey
 
     var body: some View {
         ZStack {

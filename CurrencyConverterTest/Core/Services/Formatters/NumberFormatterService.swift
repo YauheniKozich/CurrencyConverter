@@ -38,7 +38,7 @@ final class NumberFormatterService: NumberFormatting {
     }
 
     func parse(_ string: String) -> Double? {
-        let trimmed = string.trimmingCharacters(in: .whitespaces)
+        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !trimmed.isEmpty else {
             return nil
@@ -46,6 +46,14 @@ final class NumberFormatterService: NumberFormatting {
 
         let normalized = trimmed.replacingOccurrences(of: ",", with: ".")
 
-        return formatter.number(from: normalized)?.doubleValue
+        // Input accepts either decimal separator; formatting still follows the locale.
+        // Double parses the entire string, unlike NumberFormatter's partial parsing.
+        let allowed = CharacterSet(charactersIn: "0123456789.+-eE")
+        guard normalized.unicodeScalars.allSatisfy({ allowed.contains($0) }),
+              let value = Double(normalized),
+              value.isFinite else {
+            return nil
+        }
+        return value
     }
 }

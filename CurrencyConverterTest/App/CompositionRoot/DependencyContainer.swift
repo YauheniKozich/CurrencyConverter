@@ -52,6 +52,13 @@ final class AppDependencies: Dependencies {
         _shared = dependencies
     }
 
+    /// Allows scoped dependency overrides to restore even an uninitialized singleton.
+    static func exchangeShared(_ dependencies: AppDependencies?) -> AppDependencies? {
+        let previous = _shared
+        _shared = dependencies
+        return previous
+    }
+
     // MARK: - Initialization
 
     // Основной инициализатор для продакшена
@@ -67,9 +74,10 @@ final class AppDependencies: Dependencies {
     }
 
     // Упрощенный инициализатор для тестов
-    init(config: AppConfiguration, database: ModelContainer) {
+    init(config: AppConfiguration, database: ModelContainer, repository: (any CurrencyRepository)? = nil) {
         self.config = config
         self.database = database
+        self.repository = repository
     }
 
     // MARK: - Create Dependency

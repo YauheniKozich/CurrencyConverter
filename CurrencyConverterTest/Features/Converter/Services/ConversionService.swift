@@ -65,7 +65,7 @@ final class ConversionService {
         var errorDescription: String? {
             switch self {
             case .invalidAmount:
-                return "Неверный формат суммы"
+                return String(localized: "Неверный формат суммы")
             }
         }
     }
